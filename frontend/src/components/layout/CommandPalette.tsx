@@ -10,7 +10,8 @@ import {
   Search,
   Server,
   ArrowRight,
-  Layers
+  Layers,
+  Radio
 } from 'lucide-react';
 import { ServerProfile } from '../../types';
 
@@ -25,7 +26,7 @@ interface CommandPaletteProps {
   onSelectServerSftp: (server: ServerProfile) => void;
   onSelectServerMonitoring: (server: ServerProfile) => void;
   onOpenAddServer: () => void;
-  onSwitchView: (view: 'dashboard' | 'terminal') => void;
+  onSwitchView: (view: 'dashboard' | 'terminal' | 'broadcast') => void;
   onToggleScanlines: () => void;
 }
 
@@ -72,6 +73,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       subtitle: 'View server profiles grid',
       icon: <Server size={15} color="var(--accent-emerald)" />,
       action: () => { onSwitchView('dashboard'); onClose(); }
+    },
+    {
+      id: 'nav-broadcast',
+      category: 'NAVIGATION',
+      title: 'Open Cluster Broadcast Shell',
+      subtitle: 'Multi-exec commands across server fleets',
+      icon: <Radio size={15} color="var(--accent-cyan)" />,
+      action: () => { onSwitchView('broadcast'); onClose(); }
     },
     {
       id: 'nav-terminal',

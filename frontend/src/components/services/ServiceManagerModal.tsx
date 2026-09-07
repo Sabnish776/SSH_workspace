@@ -822,7 +822,7 @@ export const ServiceManagerModal: React.FC<ServiceManagerModalProps> = ({
                               ) : (
                                 <>
                                   <Terminal size={13} />
-                                  <span>&gt;_ {effectiveCli}</span>
+                                  <span>{effectiveCli}</span>
                                 </>
                               )}
                             </button>

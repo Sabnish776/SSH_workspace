@@ -13,7 +13,9 @@ import {
   DiscoveredService,
   ServiceActionInput,
   ServiceActionOutput,
-  ServiceLogsResult
+  ServiceLogsResult,
+  BroadcastRequest,
+  BroadcastResponse
 } from '../types';
 
 const TOKEN_KEY = 'ssh_workspace_token';
@@ -219,5 +221,13 @@ export const api = {
       apiFetch<ServiceLogsResult>(
         `/api/servers/${serverId}/services/${encodeURIComponent(serviceName)}/logs?source=${encodeURIComponent(source)}`
       )
+  },
+
+  cluster: {
+    broadcast: async (input: BroadcastRequest) =>
+      apiFetch<BroadcastResponse>('/api/cluster/broadcast', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      })
   }
 };

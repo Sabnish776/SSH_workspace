@@ -10,6 +10,7 @@ import { MonitoringModal } from './components/monitoring/MonitoringModal';
 import { TunnelManagerModal } from './components/tunnels/TunnelManagerModal';
 import { DatabaseConsoleModal } from './components/database/DatabaseConsoleModal';
 import { ServiceManagerModal } from './components/services/ServiceManagerModal';
+import { BroadcastWorkspace } from './components/broadcast/BroadcastWorkspace';
 import { AuthModal } from './components/auth/AuthModal';
 import { api, authStorage } from './api/client';
 import { User, ServerProfile, TerminalTabItem, ServerCreateInput, ServerStatusInfo } from './types';
@@ -39,7 +40,7 @@ export const App: React.FC = () => {
   };
 
   // Filtering & View state
-  const [activeView, setActiveView] = useState<'dashboard' | 'terminal'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'terminal' | 'broadcast'>('dashboard');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -626,6 +627,23 @@ export const App: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Cluster Broadcast Shell View */}
+          <div
+            className="broadcast-container"
+            style={{
+              display: activeView === 'broadcast' ? 'block' : 'none'
+            }}
+          >
+            <BroadcastWorkspace
+              servers={servers}
+              serverStatuses={serverStatuses}
+              onOpenTerminal={(server) => {
+                handleConnect(server);
+                setActiveView('terminal');
+              }}
+            />
           </div>
 
           <div

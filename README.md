@@ -12,6 +12,8 @@ Connect to remote servers, cloud VPS instances, local machines, or Docker contai
 | Browser UI (React 18 + TypeScript + Vite + xterm.js + Lucide Icons + Cyber-Ops Design System)     |
 |                                                                                                    |
 |  - Dashboard: Server cards, Group/Tag filtering, live status indicators, "Connecting..." feedback  |
+|  - Cluster Broadcast Shell: Multi-exec console, group/tag targeting, tiled matrix & table outputs  |
+|  - Security Challenge Modal: Re-auth guardrails intercepting high-risk/destructive fleet commands  |
 |  - Multi-Tab Terminals: Persistent PTY streams, scrollback retention, ANSI colors, fit-addon      |
 |  - 0ms Instant Command Bar ("0ms EXEC //"): Zero-latency local line buffer with command history    |
 |  - Service Manager Console: Automated SSH probe, category filters, daemon logs, lifecycle controls |
@@ -27,6 +29,8 @@ Connect to remote servers, cloud VPS instances, local machines, or Docker contai
 | Spring Boot Backend (Java 21, Spring Security, Spring Data JPA, SQLite, Apache MINA SSHD)          |
 |                                                                                                    |
 |  - Security & Authentication: Stateless JWT auth, user/session isolation                           |
+|  - CommandSafetyService: Rule-based destructive command inspector (7 hazard categories)            |
+|  - BroadcastService: Parallel remote execution engine with cryptographic password re-auth          |
 |  - Credential Vault: AES-256-GCM encryption at rest with 256-bit master key                        |
 |  - SshClientService: Apache MINA SSH Client with TCP_NODELAY and unverified server key handling    |
 |  - ServiceManagerService: Composite non-destructive probe (ss/netstat, systemctl, OpenRC, docker)  |
@@ -106,6 +110,44 @@ Connect to remote servers, cloud VPS instances, local machines, or Docker contai
 ### 10. Cyber-Ops Design System
 * **Modern Aesthetics**: Deep cyber-dark palette (`#080d14`), emerald/cyan/amber neon accents, subtle glassmorphism, glowing borders, CRT scanline toggle, real-time Telemetry HUD, and a quick keyboard command palette (`Ctrl+K`).
 
+### 11. Multi-Exec / Cluster Broadcast Shell (DevOps Superpower)
+* **Parallel Fleet Execution**: Dispatch shell commands simultaneously across multiple remote or local servers with non-blocking concurrency via `CompletableFuture` and SSH `ChannelExec`.
+* **Scope & Target Filtering**: Filter target machines with quick chips by Server Group (`Dev`, `Aws`), Tags (`#tailscale`, `#production`), or individual toggle checkboxes.
+* **DevOps Presets**: Built-in 1-click execution templates:
+  - `uptime`: Load average & system uptime
+  - `df -h /`: Root disk capacity & mount usage
+  - `free -m`: Memory & swap breakdown
+  - `docker ps`: Running containers and status
+  - `uname -srm; cat /etc/os-release`: Kernel version and Linux distro
+  - `who`: Active logged-in users and sessions
+  - `ss -tulpn`: Open ports & listening daemon sockets
+* **Split Grid & Consolidated Table Views**:
+  - **Tiled Matrix View**: Visual cyber tiles per server showing real-time execution duration (e.g. `209ms`), exit status (`exit 0`), and full ANSI terminal outputs.
+  - **Consolidated Table View**: Dense comparison table for auditing fleet-wide consistency.
+* **1-Click Shell Jump (`Open Shell`)**: Click directly on any host tile to transition immediately into a dedicated, interactive PTY terminal session.
+* **Report Export**: One-click download of complete multi-server execution runs in formatted Markdown (`.md`).
+
+### 12. 3-Tier Destructive Command Safety & Password Re-Authentication
+To prevent accidental cluster disasters or unauthorized tampering if your computer is accessed, commands pass through a 3-tier defense engine before execution:
+
+* **Tier 1: Intelligent Pattern Inspector (Client & Server)**
+  - Matches commands against **7 high-risk hazard categories**:
+    1. `SYSTEM_POWER`: `reboot`, `shutdown`, `poweroff`, `halt`, `init 0/6`
+    2. `FILE_DESTRUCTION`: `rm -rf`, `rmdir`, `shred`, `truncate`
+    3. `SERVICE_DISRUPTION`: `systemctl stop/restart/disable`, `service stop`
+    4. `CONTAINER_REMOVAL`: `docker rm`, `docker kill`, `docker system prune`, `compose down`
+    5. `PROCESS_TERMINATION`: `kill -9`, `killall`, `pkill`
+    6. `DISK_ALTERATION`: `mkfs`, `fdisk`, `parted`, `dd if=`
+    7. `DATABASE_DROP`: `drop database`, `drop table`, `redis-cli flushall`
+* **Tier 2: Interactive Security Challenge Modal (Frontend Guardrail)**
+  - Immediately blocks outgoing requests—**no SSH connection is initiated**.
+  - Displays a crimson hazard modal showing the detected category, exact command preview, and all affected target hosts.
+  - Demands re-authentication with the user's **workspace account password** with animated shake error feedback on invalid input.
+* **Tier 3: Cryptographic Backend Verification & Audit Trail (Backend Defense)**
+  - Validates `confirmationPassword` against the user's BCrypt password hash in SQLite using Spring Security's `PasswordEncoder`.
+  - **Rejection**: If unprovided or incorrect, throws `SecurityException` (`403 Forbidden`) and permanently logs `DESTRUCTIVE_EXEC_BLOCKED` or `DESTRUCTIVE_EXEC_AUTH_FAILED`. No SSH channel is ever opened.
+  - **Authorization**: If valid, logs `DESTRUCTIVE_EXEC_AUTHORIZED` and safely dispatches the command across the fleet.
+
 ---
 
 ## Project Structure
@@ -115,12 +157,12 @@ Devkit/
 ├── backend/
 │   ├── src/main/java/com/sshworkspace/
 │   │   ├── config/              # Security, SQLite dialect, WebMvc, WebSocket config
-│   │   ├── controller/          # REST Controllers (Auth, Server, Service, DB, SFTP, Tunnels)
-│   │   ├── dto/                 # Request/Response Data Transfer Objects
+│   │   ├── controller/          # REST Controllers (Auth, Server, Broadcast, Service, DB, SFTP, Tunnels)
+│   │   ├── dto/                 # Request/Response Data Transfer Objects (BroadcastRequest, etc.)
 │   │   ├── model/               # JPA Entities (User, ServerProfile, Tunnel, AuditLog)
 │   │   ├── repository/          # Spring Data JPA Repositories
 │   │   ├── security/            # JWT Token Provider, Filters, UserDetails
-│   │   ├── service/             # SshClient, ServiceManager, Database, Sftp, Encryption
+│   │   ├── service/             # SshClient, Broadcast, CommandSafety, ServiceManager, Database, Sftp
 │   │   ├── websocket/           # TerminalWebSocketHandler (Full-duplex PTY streaming)
 │   │   └── SshWorkspaceApplication.java
 │   ├── src/main/resources/
@@ -130,10 +172,13 @@ Devkit/
 │   └── sshworkspace.db          # Embedded database file (auto-created)
 ├── frontend/
 │   ├── src/
-│   │   ├── api/                 # Axios client, Auth, Server, Service, SFTP endpoints
-│   │   ├── types/               # TypeScript interfaces (ServerProfile, DiscoveredService, etc.)
+│   │   ├── api/                 # Axios client, Auth, Server, Cluster Broadcast, Service, SFTP endpoints
+│   │   ├── types/               # TypeScript interfaces (ServerProfile, Broadcast, Safety, etc.)
+│   │   ├── utils/               # Command safety regex analyzer
 │   │   ├── components/
 │   │   │   ├── auth/            # AuthModal (Login & Registration)
+│   │   │   ├── broadcast/       # BroadcastWorkspace (Multi-exec shell, server picker, tiled output)
+│   │   │   ├── common/          # SecurityChallengeModal (Re-auth password challenge, hazard dialogs)
 │   │   │   ├── dashboard/       # ServerCard ("Connecting...", Latency, Tags), ServerModal
 │   │   │   ├── database/        # DatabaseConsoleModal (SQL & Redis query executor)
 │   │   │   ├── layout/          # Navbar, CyberHUD, CommandPalette (Ctrl+K)
@@ -305,6 +350,11 @@ You can use SSH Workspace to manage your local machine:
 | Protocol | Endpoint | Description |
 |---|---|---|
 | `WSS` | `/ws/terminal/{sessionId}` | Full-duplex JSON stream (`INPUT`, `OUTPUT`, `RESIZE`, `STATUS`) |
+
+### Cluster Broadcast & Multi-Exec
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/cluster/broadcast` | Broadcast parallel shell command across targeted servers with safety verification & password re-authentication |
 
 ### Service Tunnels & Database Console
 | Method | Endpoint | Description |

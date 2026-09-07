@@ -1,12 +1,12 @@
 import React from 'react';
-import { Terminal, Plus, LogOut, User as UserIcon, Monitor, Server } from 'lucide-react';
+import { Terminal, Plus, LogOut, User as UserIcon, Monitor, Server, Radio } from 'lucide-react';
 import { User, TerminalTabItem } from '../../types';
 
 interface NavbarProps {
   user: User | null;
   activeTabs: TerminalTabItem[];
-  activeView: 'dashboard' | 'terminal';
-  setActiveView: (view: 'dashboard' | 'terminal') => void;
+  activeView: 'dashboard' | 'terminal' | 'broadcast';
+  setActiveView: (view: 'dashboard' | 'terminal' | 'broadcast') => void;
   onOpenAddServer: () => void;
   onLogout: () => void;
 }
@@ -37,6 +37,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Server size={14} />
             <span>Dashboard</span>
+          </button>
+
+          <button
+            className={`btn btn-sm ${activeView === 'broadcast' ? 'btn-primary' : 'btn-outline'}`}
+            style={{ border: 'none' }}
+            onClick={() => setActiveView('broadcast')}
+          >
+            <Radio size={14} />
+            <span>Broadcast</span>
           </button>
 
           <button

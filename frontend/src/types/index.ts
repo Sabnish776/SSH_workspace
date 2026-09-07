@@ -164,3 +164,37 @@ export interface ServiceLogsResult {
   error?: string;
 }
 
+export interface BroadcastRequest {
+  serverIds: number[];
+  command: string;
+  timeoutMs?: number;
+  confirmationPassword?: string;
+}
+
+export interface CommandSafetyCheck {
+  isDestructive: boolean;
+  category: string;
+  reason?: string;
+}
+
+export interface ServerExecutionResult {
+  serverId: number;
+  serverName: string;
+  hostname: string;
+  port: number;
+  success: boolean;
+  exitCode: number;
+  output: string;
+  error?: string | null;
+  durationMs: number;
+}
+
+export interface BroadcastResponse {
+  command: string;
+  executedAt: string;
+  totalTargets: number;
+  successCount: number;
+  failedCount: number;
+  results: Record<string, ServerExecutionResult>;
+}
+
