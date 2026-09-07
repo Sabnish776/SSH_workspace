@@ -12,8 +12,8 @@ import { DatabaseConsoleModal } from './components/database/DatabaseConsoleModal
 import { ServiceManagerModal } from './components/services/ServiceManagerModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { api, authStorage } from './api/client';
-import { User, ServerProfile, TerminalTabItem, ServerCreateInput } from './types';
-import { Search, Server, Plus, Layers, Tag as TagIcon, Trash2 } from 'lucide-react';
+import { User, ServerProfile, TerminalTabItem, ServerCreateInput, ServerStatusInfo } from './types';
+import { Search, Server, Plus, Layers, Tag as TagIcon, Trash2, LayoutGrid, List, Rows, RefreshCw } from 'lucide-react';
 import { usePopup } from './context/PopupContext';
 
 export const App: React.FC = () => {
@@ -22,6 +22,21 @@ export const App: React.FC = () => {
   const [servers, setServers] = useState<ServerProfile[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+
+  // Real Health Check & Dynamic Status
+  const [serverStatuses, setServerStatuses] = useState<Record<number, ServerStatusInfo>>({});
+  const [isCheckingAll, setIsCheckingAll] = useState<boolean>(false);
+
+  // Listing Style (grid, list, compact)
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'compact'>(() => {
+    const saved = localStorage.getItem('server_view_mode');
+    return (saved === 'list' || saved === 'compact') ? saved : 'grid';
+  });
+
+  const handleSetViewMode = (mode: 'grid' | 'list' | 'compact') => {
+    setViewMode(mode);
+    localStorage.setItem('server_view_mode', mode);
+  };
 
   // Filtering & View state
   const [activeView, setActiveView] = useState<'dashboard' | 'terminal'>('dashboard');
@@ -51,6 +66,50 @@ export const App: React.FC = () => {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
   const [activeTunnelsCount, setActiveTunnelsCount] = useState<number>(0);
 
+  const handleCheckAllServers = async (serverList?: ServerProfile[]) => {
+    const targets = serverList || servers;
+    if (!targets || targets.length === 0) return;
+
+    setIsCheckingAll(true);
+    // 1. Immediately set status to CHECKING for all targets
+    setServerStatuses((prev) => {
+      const next = { ...prev };
+      targets.forEach((s) => {
+        next[s.id] = { status: 'CHECKING' };
+      });
+      return next;
+    });
+
+    // 2. Simultaneously check connection for all servers in parallel
+    await Promise.allSettled(
+      targets.map(async (server) => {
+        try {
+          const res = await api.servers.test(server.id, 5000);
+          setServerStatuses((prev) => ({
+            ...prev,
+            [server.id]: {
+              status: res.success ? 'ONLINE' : 'OFFLINE',
+              latencyMs: res.latencyMs,
+              message: res.message,
+              lastChecked: Date.now()
+            }
+          }));
+        } catch (err: any) {
+          setServerStatuses((prev) => ({
+            ...prev,
+            [server.id]: {
+              status: 'OFFLINE',
+              message: err.message || 'Connection test failed',
+              lastChecked: Date.now()
+            }
+          }));
+        }
+      })
+    );
+
+    setIsCheckingAll(false);
+  };
+
   const fetchServers = async () => {
     if (!user) return;
     try {
@@ -62,6 +121,8 @@ export const App: React.FC = () => {
       setServers(serverList);
       setGroups(groupList);
       setTags(tagList);
+      // Automatically check connection for all servers live on page refresh / load
+      handleCheckAllServers(serverList);
     } catch (err) {
       console.error('Failed to load servers', err);
     }
@@ -439,10 +500,32 @@ export const App: React.FC = () => {
           >
             <div className="dashboard-header">
               <div className="dashboard-headline">
-                <h1>
-                  <Server size={22} color="var(--accent-emerald)" />
-                  <span>Server Workspace</span>
-                </h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+                  <h1>
+                    <Server size={22} color="var(--accent-emerald)" />
+                    <span>Server Workspace</span>
+                  </h1>
+
+                  <button
+                    className={`btn btn-outline btn-sm ${isCheckingAll ? 'pulse-checking' : ''}`}
+                    onClick={() => handleCheckAllServers(servers)}
+                    disabled={isCheckingAll}
+                    title="Simultaneously check live connection for all servers"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontFamily: 'var(--font-mono)',
+                      borderColor: isCheckingAll ? 'var(--accent-cyan)' : 'var(--border-subtle)',
+                      background: isCheckingAll ? 'rgba(0, 240, 255, 0.1)' : 'transparent'
+                    }}
+                  >
+                    <RefreshCw size={12} className={isCheckingAll ? 'spinning' : ''} color={isCheckingAll ? 'var(--accent-cyan)' : 'inherit'} />
+                    <span>{isCheckingAll ? 'Checking Connection...' : 'Refresh Status'}</span>
+                  </button>
+                </div>
                 <p>Manage remote SSH machines, interactive shells, services, tunnels & SQL consoles.</p>
               </div>
 
@@ -465,6 +548,37 @@ export const App: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+              </div>
+
+              {/* View Mode Switcher */}
+              <div className="view-mode-switcher">
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => handleSetViewMode('grid')}
+                  title="Cards Layout"
+                >
+                  <LayoutGrid size={15} />
+                  <span>Cards</span>
+                </button>
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => handleSetViewMode('list')}
+                  title="List / Table Layout"
+                >
+                  <List size={15} />
+                  <span>List</span>
+                </button>
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'compact' ? 'active' : ''}`}
+                  onClick={() => handleSetViewMode('compact')}
+                  title="Compact Grid Layout"
+                >
+                  <Rows size={15} />
+                  <span>Compact</span>
+                </button>
               </div>
             </div>
 
@@ -492,11 +606,13 @@ export const App: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="server-grid">
+              <div className={viewMode === 'list' ? 'server-list-container' : viewMode === 'compact' ? 'server-grid server-compact-grid' : 'server-grid'}>
                 {filteredServers.map((server) => (
                   <ServerCard
                     key={server.id}
                     server={server}
+                    statusInfo={serverStatuses[server.id]}
+                    viewMode={viewMode}
                     onConnect={handleConnect}
                     onOpenServices={(s) => setServiceServer(s)}
                     onOpenSftp={(s) => setSftpServer(s)}

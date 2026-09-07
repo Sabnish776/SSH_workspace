@@ -4,6 +4,13 @@ export interface User {
   email: string;
 }
 
+export interface ServerStatusInfo {
+  status: 'ONLINE' | 'OFFLINE' | 'CHECKING';
+  latencyMs?: number;
+  message?: string;
+  lastChecked?: number;
+}
+
 export interface ServerProfile {
   id: number;
   name: string;
@@ -13,7 +20,9 @@ export interface ServerProfile {
   authType: 'PASSWORD' | 'KEY';
   groupName?: string;
   tags: string[];
-  status?: 'ONLINE' | 'OFFLINE' | 'CONNECTING' | 'ERROR';
+  status?: 'ONLINE' | 'OFFLINE' | 'CHECKING' | 'CONNECTING' | 'ERROR';
+  latencyMs?: number;
+  statusMessage?: string;
   createdAt?: string;
   updatedAt?: string;
 }

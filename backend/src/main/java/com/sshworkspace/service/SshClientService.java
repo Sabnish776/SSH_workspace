@@ -70,10 +70,14 @@ public class SshClientService {
     }
 
     public ConnectionTestResponse testConnection(ServerProfile server, String password, String privateKey, String passphrase) {
+        return testConnection(server, password, privateKey, passphrase, Duration.ofMillis(connectTimeoutMs));
+    }
+
+    public ConnectionTestResponse testConnection(ServerProfile server, String password, String privateKey, String passphrase, Duration timeout) {
         long startTime = System.currentTimeMillis();
         ClientSession session = null;
         try {
-            session = createSession(server, password, privateKey, passphrase, Duration.ofMillis(connectTimeoutMs));
+            session = createSession(server, password, privateKey, passphrase, timeout);
             long latency = System.currentTimeMillis() - startTime;
             return ConnectionTestResponse.builder()
                     .success(true)

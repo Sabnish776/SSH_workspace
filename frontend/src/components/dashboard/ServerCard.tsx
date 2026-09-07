@@ -15,11 +15,13 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
-import { ServerProfile, ConnectionTestResult } from '../../types';
+import { ServerProfile, ConnectionTestResult, ServerStatusInfo } from '../../types';
 import { api } from '../../api/client';
 
 interface ServerCardProps {
   server: ServerProfile;
+  statusInfo?: ServerStatusInfo;
+  viewMode?: 'grid' | 'list' | 'compact';
   onConnect: (server: ServerProfile) => Promise<void> | void;
   onOpenServices: (server: ServerProfile) => void;
   onOpenSftp: (server: ServerProfile) => void;
@@ -33,6 +35,8 @@ interface ServerCardProps {
 
 export const ServerCard: React.FC<ServerCardProps> = ({
   server,
+  statusInfo,
+  viewMode = 'grid',
   onConnect,
   onOpenServices,
   onOpenSftp,
@@ -62,7 +66,7 @@ export const ServerCard: React.FC<ServerCardProps> = ({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await api.servers.test(server.id);
+      const res = await api.servers.test(server.id, 5000);
       setTestResult(res);
     } catch (err: any) {
       setTestResult({
@@ -74,8 +78,183 @@ export const ServerCard: React.FC<ServerCardProps> = ({
     }
   };
 
+  const renderStatusIndicator = () => {
+    const currentStatus = statusInfo?.status || (server.status as any) || 'CHECKING';
+    const latency = statusInfo?.latencyMs;
+    const statusMsg = statusInfo?.message;
+
+    if (currentStatus === 'CHECKING') {
+      return (
+        <div className="status-indicator status-checking" title="Checking live server connectivity...">
+          <RefreshCw size={11} className="spinning" color="var(--accent-cyan)" />
+          <span>CHECKING...</span>
+        </div>
+      );
+    }
+    if (currentStatus === 'ONLINE') {
+      return (
+        <div className="status-indicator status-online" title={statusMsg || `Server is online (${latency || 0}ms)`}>
+          <span className="status-dot online"></span>
+          <span>ONLINE</span>
+          {latency !== undefined && (
+            <span className="latency-pill">{latency}ms</span>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="status-indicator status-offline" title={statusMsg || 'Server unreachable or offline'}>
+        <span className="status-dot offline"></span>
+        <span>OFFLINE</span>
+      </div>
+    );
+  };
+
+  // 1. List View Mode (Horizontal Row)
+  if (viewMode === 'list') {
+    return (
+      <div className="server-list-row">
+        <div className="server-row-primary">
+          <div className="server-row-status">
+            {renderStatusIndicator()}
+          </div>
+
+          <div className="server-row-name-group">
+            <span className="server-row-name">{server.name}</span>
+            {server.groupName && (
+              <span className="group-badge-pill">{server.groupName}</span>
+            )}
+          </div>
+
+          <div className="server-row-endpoint">
+            <span>{server.username}@{server.hostname}:{server.port}</span>
+          </div>
+
+          <div className="server-row-auth">
+            {server.authType === 'KEY' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-cyan)', fontSize: '0.72rem' }}>
+                <Key size={12} /> Key
+              </span>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-amber)', fontSize: '0.72rem' }}>
+                <Lock size={12} /> Pass
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="server-row-tags">
+          {server.tags && server.tags.map((tag) => (
+            <span key={tag} className="tag-badge">
+              <span>#{tag}</span>
+              {onRemoveTag && (
+                <button
+                  type="button"
+                  className="tag-remove-btn"
+                  title={`Remove tag #${tag} from ${server.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveTag(server.id, tag);
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+
+        <div className="server-row-actions">
+          <button className="btn btn-outline btn-xs" title="Test Connection" disabled={testing} onClick={handleTest}>
+            <Zap size={13} color={testing ? '#94a3b8' : 'var(--accent-amber)'} />
+            <span>{testing ? 'Testing...' : 'Test'}</span>
+          </button>
+          <button className="btn btn-outline btn-xs" title="SFTP File Browser" onClick={() => onOpenSftp(server)}>
+            <FolderTree size={13} color="var(--accent-cyan)" />
+          </button>
+          <button className="btn btn-outline btn-xs" title="Service Discovery" onClick={() => onOpenServices(server)}>
+            <Layers size={13} color="var(--accent-emerald)" />
+          </button>
+          <button className="btn btn-outline btn-xs" title="Tunnels" onClick={() => onOpenTunnels(server)}>
+            <Network size={13} color="var(--accent-cyan)" />
+          </button>
+          <button className="btn btn-outline btn-xs" title="Database Console" onClick={() => onOpenDatabase(server)}>
+            <Database size={13} color="var(--accent-magenta)" />
+          </button>
+          <button className="btn btn-outline btn-xs" title="Server Metrics" onClick={() => onOpenMonitoring(server)}>
+            <Activity size={13} color="var(--accent-indigo)" />
+          </button>
+
+          <button
+            className="btn btn-primary btn-xs"
+            disabled={connecting}
+            onClick={handleConnectClick}
+            style={{ minWidth: '85px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+          >
+            {connecting ? (
+              <>
+                <RefreshCw size={12} className="spinning" />
+                <span>Connecting</span>
+              </>
+            ) : (
+              <>
+                <Terminal size={12} />
+                <span>Connect</span>
+              </>
+            )}
+          </button>
+
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn-outline btn-icon"
+              style={{ padding: '4px', border: 'none' }}
+              onClick={() => setShowMenu(!showMenu)}
+            >
+              <MoreVertical size={15} />
+            </button>
+            {showMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '100%',
+                  background: '#1e293b',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  padding: '4px',
+                  zIndex: 30,
+                  minWidth: '120px',
+                  boxShadow: 'var(--shadow-lg)'
+                }}
+                onMouseLeave={() => setShowMenu(false)}
+              >
+                <button
+                  className="sidebar-item"
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left', padding: '6px 10px' }}
+                  onClick={() => { setShowMenu(false); onEdit(server); }}
+                >
+                  <Edit2 size={13} style={{ marginRight: '6px' }} />
+                  <span>Edit</span>
+                </button>
+                <button
+                  className="sidebar-item"
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left', padding: '6px 10px', color: '#ef4444' }}
+                  onClick={() => { setShowMenu(false); onDelete(server); }}
+                >
+                  <Trash2 size={13} style={{ marginRight: '6px' }} />
+                  <span>Delete</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Grid and Compact View Modes
   return (
-    <div className="server-card">
+    <div className={`server-card ${viewMode === 'compact' ? 'server-card-compact' : ''}`}>
       <div className="server-card-header">
         <div className="server-info">
           <h3>
@@ -160,10 +339,7 @@ export const ServerCard: React.FC<ServerCardProps> = ({
           )}
         </div>
 
-        <div className="status-indicator">
-          <span className="status-dot"></span>
-          <span>ONLINE</span>
-        </div>
+        {renderStatusIndicator()}
       </div>
 
       {server.tags && server.tags.length > 0 && (

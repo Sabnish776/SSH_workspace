@@ -15,7 +15,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -206,7 +208,8 @@ public class ServerController {
 
     @PostMapping("/{id}/test")
     public ResponseEntity<ConnectionTestResponse> testConnection(@AuthenticationPrincipal UserPrincipal principal,
-                                                                 @PathVariable Long id) {
+                                                                 @PathVariable Long id,
+                                                                 @RequestParam(required = false, defaultValue = "5000") Long timeoutMs) {
         ServerProfile server = serverRepository.findByIdAndUserId(id, principal.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Server not found"));
 
@@ -226,9 +229,52 @@ public class ServerController {
             }
         }
 
-        ConnectionTestResponse response = sshClientService.testConnection(server, password, privateKey, passphrase);
+        Duration timeout = Duration.ofMillis(timeoutMs != null && timeoutMs > 0 ? timeoutMs : 5000);
+        ConnectionTestResponse response = sshClientService.testConnection(server, password, privateKey, passphrase, timeout);
         auditService.recordEvent(principal.getId(), server.getName(), "SSH_TEST", response.isSuccess() ? "SUCCESS" : "FAILED", response.getMessage());
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/health-check")
+    public ResponseEntity<Map<Long, ConnectionTestResponse>> checkAllHealth(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(required = false, defaultValue = "5000") Long timeoutMs) {
+        List<ServerProfile> servers = serverRepository.findByUserId(principal.getId());
+        Map<Long, ConnectionTestResponse> results = new ConcurrentHashMap<>();
+
+        List<CompletableFuture<Void>> futures = servers.stream()
+                .map(server -> CompletableFuture.runAsync(() -> {
+                    try {
+                        String password = null;
+                        String privateKey = null;
+                        String passphrase = null;
+
+                        if (server.getCredentialId() != null) {
+                            Credential credential = credentialRepository.findByIdAndUserId(server.getCredentialId(), principal.getId()).orElse(null);
+                            if (credential != null) {
+                                String decrypted = encryptionService.decrypt(credential.getEncryptedData());
+                                if ("KEY".equalsIgnoreCase(credential.getType())) {
+                                    privateKey = decrypted;
+                                } else {
+                                    password = decrypted;
+                                }
+                            }
+                        }
+
+                        Duration timeout = Duration.ofMillis(timeoutMs != null && timeoutMs > 0 ? timeoutMs : 5000);
+                        ConnectionTestResponse res = sshClientService.testConnection(server, password, privateKey, passphrase, timeout);
+                        results.put(server.getId(), res);
+                    } catch (Exception e) {
+                        results.put(server.getId(), ConnectionTestResponse.builder()
+                                .success(false)
+                                .message(e.getMessage())
+                                .build());
+                    }
+                }))
+                .toList();
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        return ResponseEntity.ok(results);
     }
 
     @PostMapping("/{id}/connect")
@@ -375,7 +421,7 @@ public class ServerController {
                 .authType(server.getAuthType())
                 .groupName(groupName)
                 .tags(tagNames)
-                .status("ONLINE") // Baseline status
+                .status("CHECKING") // Default status until verified live
                 .createdAt(server.getCreatedAt())
                 .updatedAt(server.getUpdatedAt())
                 .build();

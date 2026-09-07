@@ -117,8 +117,10 @@ export const api = {
       }),
     delete: async (id: number) =>
       apiFetch<{ message: string }>(`/api/servers/${id}`, { method: 'DELETE' }),
-    test: async (id: number) =>
-      apiFetch<ConnectionTestResult>(`/api/servers/${id}/test`, { method: 'POST' }),
+    test: async (id: number, timeoutMs = 5000) =>
+      apiFetch<ConnectionTestResult>(`/api/servers/${id}/test?timeoutMs=${timeoutMs}`, { method: 'POST' }),
+    checkAllHealth: async (timeoutMs = 5000) =>
+      apiFetch<Record<number, ConnectionTestResult>>(`/api/servers/health-check?timeoutMs=${timeoutMs}`, { method: 'POST' }),
     connect: async (id: number) =>
       apiFetch<ConnectResult>(`/api/servers/${id}/connect`, { method: 'POST' }),
     getGroups: async () => apiFetch<string[]>('/api/servers/groups'),

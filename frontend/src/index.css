@@ -496,11 +496,166 @@ body::before {
   box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
 }
 
+/* View Mode Switcher */
+.view-mode-switcher {
+  display: flex;
+  align-items: center;
+  background: rgba(10, 16, 32, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.view-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 5px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.view-mode-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view-mode-btn.active {
+  background: linear-gradient(135deg, rgba(0, 255, 157, 0.18), rgba(0, 240, 255, 0.15));
+  color: var(--accent-emerald);
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+}
+
 /* Server Cards Grid */
 .server-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 1.25rem;
+}
+
+/* Compact Grid View */
+.server-compact-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.85rem;
+}
+
+.server-card-compact {
+  padding: 0.9rem;
+  gap: 0.75rem;
+}
+
+.server-card-compact .server-card-header h3 {
+  font-size: 0.95rem;
+}
+
+.server-card-compact .server-card-actions {
+  padding-top: 0.6rem;
+}
+
+/* List / Table View */
+.server-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.server-list-row {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: all 0.2s ease;
+}
+
+.server-list-row:hover {
+  border-color: rgba(0, 240, 255, 0.35);
+  background: var(--bg-card-hover);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.1);
+  transform: translateX(2px);
+}
+
+.server-row-primary {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.server-row-status {
+  flex-shrink: 0;
+}
+
+.server-row-name-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.server-row-name {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.group-badge-pill {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent-indigo);
+  background: rgba(99, 102, 241, 0.15);
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
+}
+
+.server-row-endpoint {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent-cyan);
+  white-space: nowrap;
+}
+
+.server-row-auth {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.server-row-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  max-width: 250px;
+}
+
+.server-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.btn-xs {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  height: 26px;
+  gap: 4px;
 }
 
 .server-card {
@@ -578,6 +733,28 @@ body::before {
   color: var(--accent-emerald);
   border: 1px solid rgba(0, 255, 157, 0.3);
   font-family: var(--font-mono);
+  transition: all 0.2s ease;
+}
+
+.status-indicator.status-online {
+  background: rgba(0, 255, 157, 0.12);
+  color: var(--accent-emerald);
+  border-color: rgba(0, 255, 157, 0.35);
+  box-shadow: 0 0 10px rgba(0, 255, 157, 0.15);
+}
+
+.status-indicator.status-offline {
+  background: rgba(255, 51, 102, 0.12);
+  color: #ff3366;
+  border-color: rgba(255, 51, 102, 0.35);
+  box-shadow: 0 0 10px rgba(255, 51, 102, 0.15);
+}
+
+.status-indicator.status-checking {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--accent-cyan);
+  border-color: rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
 }
 
 .status-dot {
@@ -586,6 +763,27 @@ body::before {
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 8px currentColor;
+}
+
+.status-dot.online {
+  background: var(--accent-emerald);
+  box-shadow: 0 0 8px var(--accent-emerald);
+}
+
+.status-dot.offline {
+  background: #ff3366;
+  box-shadow: 0 0 8px #ff3366;
+}
+
+.latency-pill {
+  font-size: 0.65rem;
+  background: rgba(0, 255, 157, 0.18);
+  color: var(--accent-emerald);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+  margin-left: 2px;
+  border: 1px solid rgba(0, 255, 157, 0.3);
 }
 
 .server-tags-row {
