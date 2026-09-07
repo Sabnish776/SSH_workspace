@@ -1,8 +1,0 @@
-services:
-  test-ssh-server:
-    build:
-      context: ./docker/ssh-test
-    container_name: sshworkspace-test-ssh
-    ports:
-      - "2222:22"
-    restart: unless-stopped

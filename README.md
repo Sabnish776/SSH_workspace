@@ -145,10 +145,7 @@ Devkit/
 │   │   ├── App.tsx              # Root application router & persistent tab orchestrator
 │   │   └── index.css            # Cyber-Ops design tokens, animations, CRT scanlines
 │   ├── package.json             # React 18, Vite, Lucide Icons, xterm.js
-│   └── vite.config.ts           # Frontend build and proxy settings
-├── docker-compose.yml           # Optional test SSH container (Alpine Linux, port 2222)
-├── Dockerfile.test-server       # Dockerfile for demo Alpine SSH host with Redis & HTTP
-├── start.sh                     # 1-Click start script for backend, frontend, & test container
+├── start.sh                     # 1-Click start script for backend & frontend
 └── stop.sh                      # Graceful shutdown script for all services
 ```
 
@@ -159,7 +156,6 @@ Devkit/
 ### Prerequisites
 * **Java 21** & **Maven 3.8+**
 * **Node.js 20+** & **npm**
-* *(Optional)* Docker (only if running the optional demo Alpine SSH container)
 
 ### 1-Click Startup
 Clone the repository and run:
@@ -168,9 +164,8 @@ Clone the repository and run:
 ```
 
 This will automatically:
-1. Start the test Alpine OpenSSH container on port `2222` (if Docker is available).
-2. Start the Spring Boot backend with embedded SQLite on `http://localhost:8080`.
-3. Start the React Cyber-Ops frontend on `http://localhost:5173`.
+1. Start the Spring Boot backend with embedded SQLite on `http://localhost:8080`.
+2. Start the React Cyber-Ops frontend on `http://localhost:5173`.
 
 To stop all services:
 ```bash
@@ -202,12 +197,6 @@ npm run dev
 * **URL**: [http://localhost:5173/](http://localhost:5173/)
 * **Email**: `admin@example.com`
 * **Password**: `password123`
-
-### Pre-configured Demo SSH Host
-* **Host**: `localhost`
-* **Port**: `2222`
-* **Username**: `demo`
-* **Password**: `demopassword123`
 
 ---
 

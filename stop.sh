@@ -24,11 +24,6 @@ elif command -v lsof >/dev/null 2>&1; then
     lsof -ti:5173 | xargs kill -9 2>/dev/null || true
 fi
 
-echo "--> Stopping Docker Test SSH Container..."
-if command -v docker >/dev/null 2>&1; then
-    docker compose down 2>/dev/null || docker compose stop 2>/dev/null || true
-fi
-
 echo "=========================================================="
-echo "  All services and containers have been stopped."
+echo "  All services have been stopped."
 echo "=========================================================="
