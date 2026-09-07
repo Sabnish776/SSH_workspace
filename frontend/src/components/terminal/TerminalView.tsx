@@ -29,6 +29,18 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const [cols, setCols] = useState(120);
   const [rows, setRows] = useState(30);
 
+  const isActiveRef = useRef(isActive);
+  useEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
+
+  const colsRef = useRef(cols);
+  const rowsRef = useRef(rows);
+  useEffect(() => {
+    colsRef.current = cols;
+    rowsRef.current = rows;
+  }, [cols, rows]);
+
   // 0ms Instant Command Line Buffer
   const [showCommandBar, setShowCommandBar] = useState(true);
   const [commandText, setCommandText] = useState('');
@@ -58,8 +70,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       setStatus('CONNECTED');
       onStatusChange('CONNECTED');
 
-      // Send initial terminal dimensions
-      if (termInstanceRef.current) {
+      // Send initial terminal dimensions if valid
+      if (termInstanceRef.current && termInstanceRef.current.cols >= 20 && termInstanceRef.current.rows >= 5) {
         ws.send(JSON.stringify({
           type: 'RESIZE',
           cols: termInstanceRef.current.cols,
@@ -163,13 +175,20 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     term.loadAddon(webLinksAddon);
 
     term.open(terminalRef.current);
-    fitAddon.fit();
+    if (terminalRef.current.clientWidth >= 100 && terminalRef.current.clientHeight >= 50) {
+      try {
+        fitAddon.fit();
+        if (term.cols >= 20 && term.rows >= 5) {
+          setCols(term.cols);
+          setRows(term.rows);
+        }
+      } catch (err) {
+        console.warn('Initial fit error:', err);
+      }
+    }
 
     termInstanceRef.current = term;
     fitAddonRef.current = fitAddon;
-
-    setCols(term.cols);
-    setRows(term.rows);
 
     // Forward terminal keyboard input to backend WebSocket
     term.onData((data) => {
@@ -181,32 +200,32 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
       }
     });
 
-    // Handle Resize
+    // Handle Window and Container Resize
     const handleResize = () => {
-      if (fitAddonRef.current && termInstanceRef.current) {
-        fitAddonRef.current.fit();
-        const newCols = termInstanceRef.current.cols;
-        const newRows = termInstanceRef.current.rows;
-        setCols(newCols);
-        setRows(newRows);
-
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({
-            type: 'RESIZE',
-            cols: newCols,
-            rows: newRows
-          }));
-        }
-      }
+      if (!isActiveRef.current) return;
+      syncTerminalSize();
     };
 
     window.addEventListener('resize', handleResize);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && terminalRef.current) {
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.contentRect.width >= 100 && entry.contentRect.height >= 50) {
+            handleResize();
+          }
+        }
+      });
+      resizeObserver.observe(terminalRef.current);
+    }
 
     // Connect to backend WebSocket endpoint
     connectWebSocket();
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
       if (socketRef.current) {
         socketRef.current.close();
       }
@@ -214,19 +233,66 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     };
   }, [tab.id]);
 
-  // Refit when tab becomes active or font size changes
-  useEffect(() => {
-    if (isActive && fitAddonRef.current) {
-      setTimeout(() => {
-        fitAddonRef.current?.fit();
-      }, 50);
+  const syncTerminalSize = (forceSend = false) => {
+    if (!isActiveRef.current || !fitAddonRef.current || !termInstanceRef.current || !terminalRef.current) {
+      return;
     }
-  }, [isActive, fontSize]);
+
+    const containerWidth = terminalRef.current.clientWidth;
+    const containerHeight = terminalRef.current.clientHeight;
+
+    // Do NOT fit or resize if the container is hidden, detached, or collapsed (<100px)
+    if (containerWidth < 100 || containerHeight < 50) {
+      return;
+    }
+
+    try {
+      fitAddonRef.current.fit();
+      const newCols = termInstanceRef.current.cols;
+      const newRows = termInstanceRef.current.rows;
+
+      // Reject collapsed/fallback sizes (e.g. 11x5, 2x1)
+      if (newCols >= 20 && newRows >= 5) {
+        const sizeChanged = newCols !== colsRef.current || newRows !== rowsRef.current || forceSend;
+        setCols(newCols);
+        setRows(newRows);
+
+        if (sizeChanged && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          socketRef.current.send(JSON.stringify({
+            type: 'RESIZE',
+            cols: newCols,
+            rows: newRows
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('Terminal fit calculation error:', err);
+    }
+  };
+
+  // Re-sync and fit when tab becomes active, font size changes, command bar toggles, or fullscreen toggles
+  useEffect(() => {
+    if (isActive) {
+      // Allow CSS positioning and layout reflow to settle
+      const t1 = setTimeout(() => syncTerminalSize(true), 40);
+      const t2 = setTimeout(() => {
+        syncTerminalSize(true);
+        termInstanceRef.current?.focus();
+        termInstanceRef.current?.refresh(0, (termInstanceRef.current?.rows || 1) - 1);
+      }, 150);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [isActive, fontSize, showCommandBar, isFullscreen]);
 
   useEffect(() => {
     if (termInstanceRef.current) {
       termInstanceRef.current.options.fontSize = fontSize;
-      fitAddonRef.current?.fit();
+      if (isActive) {
+        syncTerminalSize(true);
+      }
     }
   }, [fontSize]);
 
@@ -278,22 +344,20 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
     }
   };
 
-  useEffect(() => {
-    setTimeout(() => {
-      fitAddonRef.current?.fit();
-    }, 50);
-  }, [showCommandBar]);
-
   return (
     <div
       style={{
-        display: isActive ? 'flex' : 'none',
+        display: 'flex',
         flexDirection: 'column',
         height: '100%',
         width: '100%',
-        position: isFullscreen ? 'fixed' : 'relative',
-        inset: isFullscreen ? 0 : 'auto',
-        zIndex: isFullscreen ? 1000 : 'auto',
+        position: isActive ? (isFullscreen ? 'fixed' : 'relative') : 'absolute',
+        top: isActive ? 0 : '-99999px',
+        left: isActive ? 0 : '-99999px',
+        opacity: isActive ? 1 : 0,
+        pointerEvents: isActive ? 'auto' : 'none',
+        visibility: isActive ? 'visible' : 'hidden',
+        zIndex: isFullscreen ? 1000 : (isActive ? 1 : 0),
         background: '#0d1117'
       }}
     >
