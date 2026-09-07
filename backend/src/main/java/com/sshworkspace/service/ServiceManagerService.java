@@ -31,6 +31,9 @@ public class ServiceManagerService {
     private final CredentialRepository credentialRepository;
     private final EncryptionService encryptionService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.channel-open-timeout-ms:30000}")
+    private long channelOpenTimeoutMs;
+
     private static final String NETSTAT_SECTION = "___NETSTAT_SECTION___";
     private static final String SYSTEMD_SECTION = "___SYSTEMD_SECTION___";
     private static final String OPENRC_SECTION = "___OPENRC_SECTION___";
@@ -205,7 +208,7 @@ public class ServiceManagerService {
             channel.setOut(out);
             channel.setErr(err);
 
-            channel.open().verify(5, TimeUnit.SECONDS);
+            channel.open().verify(channelOpenTimeoutMs, TimeUnit.MILLISECONDS);
             channel.waitFor(EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), timeoutSeconds * 1000L);
 
             String stdout = out.toString(StandardCharsets.UTF_8).trim();

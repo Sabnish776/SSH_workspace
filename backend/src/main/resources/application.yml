@@ -25,6 +25,11 @@ app:
       secret: ${JWT_SECRET:S3cur3SShW0rksp4c3M4n4g3rJwTS3cr3tK3y2026!@#$}
       expiration-ms: 86400000 # 24 hours
     master-key: ${APP_MASTER_KEY:SshWorkspaceMasterEncKey202632B!} # 32 bytes AES key
+  ssh:
+    connect-timeout-ms: ${SSH_CONNECT_TIMEOUT_MS:30000}          # 30s connection & auth timeout (was 15s)
+    channel-open-timeout-ms: ${SSH_CHANNEL_TIMEOUT_MS:30000}     # 30s PTY/channel open timeout (was 10s hardcoded)
+    exec-timeout-ms: ${SSH_EXEC_TIMEOUT_MS:30000}                # 30s remote command execution timeout (was 15s)
+    heartbeat-interval-ms: ${SSH_HEARTBEAT_INTERVAL_MS:15000}   # 15s keep-alive heartbeat for cellular/VPN/Tailscale
 
 logging:
   level:

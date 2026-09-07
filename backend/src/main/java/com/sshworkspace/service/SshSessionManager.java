@@ -34,6 +34,9 @@ public class SshSessionManager {
     private final Map<String, ActiveSshSession> activeSessions = new ConcurrentHashMap<>();
     private final ExecutorService ioExecutor = Executors.newCachedThreadPool();
 
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.channel-open-timeout-ms:30000}")
+    private long channelOpenTimeoutMs;
+
     @Getter
     @Setter
     public static class ActiveSshSession {
@@ -97,7 +100,8 @@ public class SshSessionManager {
             modes.put(org.apache.sshd.common.channel.PtyMode.ONLCR, 1);
             shell.setPtyModes(modes);
 
-            shell.open().verify(10, TimeUnit.SECONDS);
+            log.info("Opening PTY shell channel for session {} with timeout {}ms...", sessionId, channelOpenTimeoutMs);
+            shell.open().verify(channelOpenTimeoutMs, TimeUnit.MILLISECONDS);
 
             session.setShellChannel(shell);
             OutputStream remoteIn = shell.getInvertedIn();

@@ -263,6 +263,10 @@ You can use SSH Workspace to manage your local machine:
 | `JWT_SECRET` | `S3cur3SShW0rksp4c3M4n4g3rJwTS3cr3tK3y2026!@#$` | Secret key used for signing JWT tokens |
 | `JWT_EXPIRATION_MS` | `86400000` (24h) | JWT session validity duration in milliseconds |
 | `APP_MASTER_KEY` | `SshWorkspaceMasterEncKey202632B!` | 32-byte AES key for encrypting credentials at rest |
+| `SSH_CONNECT_TIMEOUT_MS` | `30000` (30s) | SSH connection and authentication timeout in milliseconds |
+| `SSH_CHANNEL_TIMEOUT_MS` | `30000` (30s) | SSH PTY/Shell channel open verification timeout in milliseconds |
+| `SSH_EXEC_TIMEOUT_MS` | `30000` (30s) | Timeout for remote diagnostic & service execution commands |
+| `SSH_HEARTBEAT_INTERVAL_MS` | `15000` (15s) | Heartbeat keep-alive interval for cellular, VPN, and Tailscale links |
 
 ---
 

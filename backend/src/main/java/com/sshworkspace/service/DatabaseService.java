@@ -27,6 +27,12 @@ public class DatabaseService {
     private final CredentialRepository credentialRepository;
     private final EncryptionService encryptionService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.channel-open-timeout-ms:30000}")
+    private long channelOpenTimeoutMs;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.exec-timeout-ms:30000}")
+    private long execTimeoutMs;
+
     public DatabaseQueryResponse executeQuery(Long serverId, Long userId, DatabaseQueryRequest request) {
         ServerProfile server = serverRepository.findByIdAndUserId(serverId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Server not found"));
@@ -59,8 +65,8 @@ public class DatabaseService {
                 channel.setOut(out);
                 channel.setErr(err);
 
-                channel.open().verify(10, TimeUnit.SECONDS);
-                channel.waitFor(EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), 15000);
+                channel.open().verify(channelOpenTimeoutMs, TimeUnit.MILLISECONDS);
+                channel.waitFor(EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), execTimeoutMs);
 
                 long duration = System.currentTimeMillis() - startTime;
                 String output = out.toString(StandardCharsets.UTF_8).trim();

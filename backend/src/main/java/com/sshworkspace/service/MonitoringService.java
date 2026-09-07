@@ -25,6 +25,12 @@ public class MonitoringService {
     private final CredentialRepository credentialRepository;
     private final EncryptionService encryptionService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.channel-open-timeout-ms:30000}")
+    private long channelOpenTimeoutMs;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.exec-timeout-ms:30000}")
+    private long execTimeoutMs;
+
     public ServerMetricsDto getMetrics(ServerProfile server, Long userId) {
         String password = null;
         String privateKey = null;
@@ -56,8 +62,8 @@ public class MonitoringService {
                 channel.setOut(out);
                 channel.setErr(err);
 
-                channel.open().verify(5, TimeUnit.SECONDS);
-                channel.waitFor(java.util.EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), 5000);
+                channel.open().verify(channelOpenTimeoutMs, TimeUnit.MILLISECONDS);
+                channel.waitFor(java.util.EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), execTimeoutMs);
 
                 String output = out.toString(StandardCharsets.UTF_8);
                 return parseMetrics(output);

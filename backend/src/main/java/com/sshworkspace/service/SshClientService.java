@@ -31,17 +31,34 @@ public class SshClientService {
 
     private SshClient sshClient;
 
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.connect-timeout-ms:30000}")
+    private long connectTimeoutMs;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.channel-open-timeout-ms:30000}")
+    private long channelOpenTimeoutMs;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ssh.heartbeat-interval-ms:15000}")
+    private long heartbeatIntervalMs;
+
     @PostConstruct
     public void init() {
-        log.info("Initializing Apache MINA SSH Client...");
+        log.info("Initializing Apache MINA SSH Client (connectTimeout: {}ms, channelTimeout: {}ms, heartbeat: {}ms)...",
+                connectTimeoutMs, channelOpenTimeoutMs, heartbeatIntervalMs);
         sshClient = SshClient.setUpDefaultClient();
         // Optimize TCP latency: disable Nagle's algorithm for interactive keystrokes
         org.apache.sshd.core.CoreModuleProperties.TCP_NODELAY.set(sshClient, true);
         org.apache.sshd.core.CoreModuleProperties.SOCKET_KEEPALIVE.set(sshClient, true);
+        // Configure timeouts for mobile/cellular/Tailscale/remote hosts
+        org.apache.sshd.core.CoreModuleProperties.IO_CONNECT_TIMEOUT.set(sshClient, Duration.ofMillis(connectTimeoutMs));
+        org.apache.sshd.core.CoreModuleProperties.AUTH_TIMEOUT.set(sshClient, Duration.ofMillis(connectTimeoutMs));
+        org.apache.sshd.core.CoreModuleProperties.CHANNEL_OPEN_TIMEOUT.set(sshClient, Duration.ofMillis(channelOpenTimeoutMs));
+        org.apache.sshd.core.CoreModuleProperties.IDLE_TIMEOUT.set(sshClient, Duration.ofDays(1));
+        org.apache.sshd.core.CoreModuleProperties.HEARTBEAT_INTERVAL.set(sshClient, Duration.ofMillis(heartbeatIntervalMs));
+
         // Allow unverified server keys for interactive remote management (like standard first-time SSH accept)
         sshClient.setServerKeyVerifier((clientSession, remoteAddress, serverKey) -> true);
         sshClient.start();
-        log.info("Apache MINA SSH Client started successfully with TCP_NODELAY enabled.");
+        log.info("Apache MINA SSH Client started successfully with TCP_NODELAY and keepalive enabled.");
     }
 
     @PreDestroy
@@ -56,7 +73,7 @@ public class SshClientService {
         long startTime = System.currentTimeMillis();
         ClientSession session = null;
         try {
-            session = createSession(server, password, privateKey, passphrase, Duration.ofSeconds(8));
+            session = createSession(server, password, privateKey, passphrase, Duration.ofMillis(connectTimeoutMs));
             long latency = System.currentTimeMillis() - startTime;
             return ConnectionTestResponse.builder()
                     .success(true)
@@ -81,7 +98,7 @@ public class SshClientService {
     }
 
     public ClientSession createSession(ServerProfile server, String password, String privateKey, String passphrase) throws Exception {
-        return createSession(server, password, privateKey, passphrase, Duration.ofSeconds(15));
+        return createSession(server, password, privateKey, passphrase, Duration.ofMillis(connectTimeoutMs));
     }
 
     public ClientSession createSession(ServerProfile server, String password, String privateKey, String passphrase, Duration timeout) throws Exception {
