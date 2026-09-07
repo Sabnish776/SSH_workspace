@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { ServerProfile, DiscoveredService } from '../../types';
 import { api } from '../../api/client';
+import { usePopup } from '../../context/PopupContext';
 
 interface ServiceManagerModalProps {
   server: ServerProfile | null;
@@ -47,6 +48,7 @@ export const ServiceManagerModal: React.FC<ServiceManagerModalProps> = ({
   onOpenTunnel,
   onOpenDatabaseConsole
 }) => {
+  const popup = usePopup();
   const [services, setServices] = useState<DiscoveredService[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +194,12 @@ export const ServiceManagerModal: React.FC<ServiceManagerModalProps> = ({
       await onConnectWithCommand(server, cmd);
       onClose();
     } catch (err: any) {
-      alert(`Could not launch CLI: ${err.message}`);
+      await popup.alert({
+        title: 'CLI LAUNCH ERROR',
+        message: `Could not launch CLI: ${err.message}`,
+        variant: 'danger',
+        badgeText: 'SERVICE CLI PROTOCOL'
+      });
     } finally {
       setLaunchingCliId(null);
     }

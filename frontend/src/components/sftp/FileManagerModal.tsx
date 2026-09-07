@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ServerProfile, SftpFileItem } from '../../types';
 import { api, authStorage } from '../../api/client';
+import { usePopup } from '../../context/PopupContext';
 
 interface FileManagerModalProps {
   server: ServerProfile | null;
@@ -26,6 +27,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   isOpen,
   onClose
 }) => {
+  const popup = usePopup();
   const [currentPath, setCurrentPath] = useState('.');
   const [files, setFiles] = useState<SftpFileItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,7 +106,32 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   };
 
   const handleDelete = async (item: SftpFileItem) => {
-    if (!confirm(`Are you sure you want to delete ${item.name}?`)) return;
+    if (!server) return;
+    const confirmed = await popup.confirm({
+      title: 'DELETE REMOTE FILE',
+      message: (
+        <div>
+          <p style={{ margin: '0 0 0.5rem 0' }}>
+            Are you sure you want to delete <strong>{item.name}</strong>?
+          </p>
+          <div style={{
+            fontSize: '0.8rem',
+            color: '#ff4d79',
+            background: 'rgba(255, 51, 102, 0.1)',
+            padding: '6px 10px',
+            borderRadius: '4px',
+            border: '1px solid rgba(255, 51, 102, 0.25)'
+          }}>
+            Path: <code>{item.path}</code>
+          </div>
+        </div>
+      ),
+      variant: 'danger',
+      badgeText: 'SFTP FILE OPERATION',
+      confirmText: 'Delete File'
+    });
+
+    if (!confirmed) return;
     try {
       await api.sftp.delete(server.id, item.path);
       loadDirectory(currentPath);

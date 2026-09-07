@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { ServerProfile, ServiceTunnel, TunnelCreateInput } from '../../types';
 import { api } from '../../api/client';
+import { usePopup } from '../../context/PopupContext';
 
 interface TunnelManagerModalProps {
   server: ServerProfile | null;
@@ -49,6 +50,7 @@ export const TunnelManagerModal: React.FC<TunnelManagerModalProps> = ({
   onTunnelChanged,
   initialPreset
 }) => {
+  const popup = usePopup();
   const [tunnels, setTunnels] = useState<ServiceTunnel[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<number | null>(null);
@@ -145,7 +147,31 @@ export const TunnelManagerModal: React.FC<TunnelManagerModalProps> = ({
   };
 
   const handleDelete = async (tunnel: ServiceTunnel) => {
-    if (!confirm(`Delete tunnel "${tunnel.name}" (Port ${tunnel.localPort} -> ${tunnel.remotePort})?`)) return;
+    const confirmed = await popup.confirm({
+      title: 'TERMINATE SERVICE TUNNEL',
+      message: (
+        <div>
+          <p style={{ margin: '0 0 0.5rem 0' }}>
+            Delete tunnel <strong>{tunnel.name}</strong>?
+          </p>
+          <div style={{
+            fontSize: '0.8rem',
+            color: 'var(--text-secondary)',
+            background: 'rgba(255, 255, 255, 0.05)',
+            padding: '6px 10px',
+            borderRadius: '4px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            Port Forwarding: <code>127.0.0.1:{tunnel.localPort}</code> &rarr; <code>{tunnel.remotePort}</code>
+          </div>
+        </div>
+      ),
+      variant: 'danger',
+      badgeText: 'NETWORK TUNNEL PROTOCOL',
+      confirmText: 'Delete Tunnel'
+    });
+
+    if (!confirmed) return;
     setActionInProgress(tunnel.id);
     try {
       await api.tunnels.delete(tunnel.id);

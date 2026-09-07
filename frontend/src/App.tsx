@@ -14,8 +14,10 @@ import { AuthModal } from './components/auth/AuthModal';
 import { api, authStorage } from './api/client';
 import { User, ServerProfile, TerminalTabItem, ServerCreateInput } from './types';
 import { Search, Server, Plus, Layers, Tag as TagIcon, Trash2 } from 'lucide-react';
+import { usePopup } from './context/PopupContext';
 
 export const App: React.FC = () => {
+  const popup = usePopup();
   const [user, setUser] = useState<User | null>(authStorage.getUser());
   const [servers, setServers] = useState<ServerProfile[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
@@ -136,7 +138,12 @@ export const App: React.FC = () => {
       setActiveTabId(res.sessionId);
       setActiveView('terminal');
     } catch (err: any) {
-      alert(`Could not connect to ${server.name}: ${err.message}`);
+      await popup.alert({
+        title: 'CONNECTION FAILED',
+        message: `Could not connect to ${server.name} (${server.hostname}): ${err.message}`,
+        variant: 'danger',
+        badgeText: 'SSH SESSION ERROR'
+      });
     }
   };
 
@@ -156,7 +163,12 @@ export const App: React.FC = () => {
       setActiveTabId(res.sessionId);
       setActiveView('terminal');
     } catch (err: any) {
-      alert(`Could not connect to ${server.name}: ${err.message}`);
+      await popup.alert({
+        title: 'CONNECTION FAILED',
+        message: `Could not connect to ${server.name}: ${err.message}`,
+        variant: 'danger',
+        badgeText: 'SSH CLI ERROR'
+      });
     }
   };
 
@@ -199,21 +211,73 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteServer = async (server: ServerProfile) => {
-    if (!confirm(`Are you sure you want to delete "${server.name}"? Active sessions will be terminated.`)) return;
+    const confirmed = await popup.confirm({
+      title: 'DELETE SERVER PROFILE',
+      message: (
+        <div>
+          <p style={{ margin: '0 0 0.5rem 0' }}>
+            Are you sure you want to delete <strong>{server.name}</strong> ({server.username}@{server.hostname}:{server.port})?
+          </p>
+          <div style={{
+            fontSize: '0.8rem',
+            color: '#ff4d79',
+            background: 'rgba(255, 51, 102, 0.1)',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            border: '1px solid rgba(255, 51, 102, 0.25)'
+          }}>
+            Active SSH sessions, open tunnels, and terminal tabs for this server will be terminated.
+          </div>
+        </div>
+      ),
+      variant: 'danger',
+      badgeText: 'IRREVERSIBLE ACTION',
+      confirmText: 'Delete Server'
+    });
+
+    if (!confirmed) return;
+
     try {
       await api.servers.delete(server.id);
       fetchServers();
       // Remove any open terminal tabs for this server
       setTerminalTabs((prev) => prev.filter((t) => t.serverId !== server.id));
     } catch (err: any) {
-      alert(`Delete failed: ${err.message}`);
+      await popup.alert({
+        title: 'DELETE FAILED',
+        message: `Could not delete ${server.name}: ${err.message}`,
+        variant: 'danger'
+      });
     }
   };
 
   const handleDeleteGlobalTag = async (tagName: string) => {
-    if (!confirm(`Delete tag "#${tagName}" globally?\n\nThis will remove this tag from all servers currently tagged with it.`)) {
-      return;
-    }
+    const confirmed = await popup.confirm({
+      title: 'DELETE TAG GLOBALLY',
+      message: (
+        <div>
+          <p style={{ margin: '0 0 0.6rem 0' }}>
+            Delete tag <span className="tag-badge" style={{ verticalAlign: 'middle' }}>#{tagName}</span> completely from the system?
+          </p>
+          <div style={{
+            fontSize: '0.8rem',
+            color: '#f59e0b',
+            background: 'rgba(245, 158, 11, 0.1)',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            border: '1px solid rgba(245, 158, 11, 0.25)'
+          }}>
+            This will automatically detach and remove this tag from all servers currently tagged with it.
+          </div>
+        </div>
+      ),
+      variant: 'danger',
+      badgeText: 'TAG PROTOCOL / GLOBAL REMOVAL',
+      confirmText: 'Delete Tag Globally'
+    });
+
+    if (!confirmed) return;
+
     try {
       await api.servers.deleteTag(tagName);
       if (selectedTag === tagName) {
@@ -221,16 +285,46 @@ export const App: React.FC = () => {
       }
       fetchServers();
     } catch (err: any) {
-      alert(`Failed to delete tag: ${err.message}`);
+      await popup.alert({
+        title: 'TAG DELETION FAILED',
+        message: err.message,
+        variant: 'danger'
+      });
     }
   };
 
   const handleRemoveTagFromServer = async (serverId: number, tagName: string) => {
+    const targetServer = servers.find((s) => s.id === serverId);
+    const serverName = targetServer ? targetServer.name : `Server #${serverId}`;
+
+    const confirmed = await popup.confirm({
+      title: 'REMOVE TAG FROM SERVER',
+      message: (
+        <div>
+          <p style={{ margin: '0 0 0.5rem 0' }}>
+            Remove tag <span className="tag-badge" style={{ verticalAlign: 'middle' }}>#{tagName}</span> from <strong>{serverName}</strong>?
+          </p>
+          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            The tag will remain saved in your system for other servers.
+          </p>
+        </div>
+      ),
+      variant: 'warning',
+      badgeText: 'TAG DETACHMENT',
+      confirmText: 'Remove Tag'
+    });
+
+    if (!confirmed) return;
+
     try {
       await api.servers.removeTag(serverId, tagName);
       fetchServers();
     } catch (err: any) {
-      alert(`Failed to remove tag: ${err.message}`);
+      await popup.alert({
+        title: 'REMOVE TAG FAILED',
+        message: err.message,
+        variant: 'danger'
+      });
     }
   };
 
