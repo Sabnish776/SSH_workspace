@@ -1,0 +1,22 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Build Artifacts
+**/target/
+**/dist/
+**/node_modules/
+
+# Logs
+**/*.log
+nohup.out
+
+# Database Files
+**/*.db
+**/*.db-journal
+
+# IDE & Editor
+.idea/
+*.iml
+.vscode/
+.antigravity-ide/

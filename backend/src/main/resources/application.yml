@@ -1,0 +1,34 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: ssh-workspace-manager
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:sqlite:sshworkspace.db}
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+        format_sql: false
+    show-sql: false
+  flyway:
+    enabled: false
+
+app:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:S3cur3SShW0rksp4c3M4n4g3rJwTS3cr3tK3y2026!@#$}
+      expiration-ms: 86400000 # 24 hours
+    master-key: ${APP_MASTER_KEY:SshWorkspaceMasterEncKey202632B!} # 32 bytes AES key
+
+logging:
+  level:
+    root: INFO
+    com.sshworkspace: DEBUG
+    org.apache.sshd: INFO
+    org.springframework.web.socket: INFO
