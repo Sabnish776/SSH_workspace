@@ -12,7 +12,8 @@ import {
   Network,
   Database,
   Layers,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import { ServerProfile, ConnectionTestResult } from '../../types';
 import { api } from '../../api/client';
@@ -27,6 +28,7 @@ interface ServerCardProps {
   onOpenDatabase: (server: ServerProfile) => void;
   onEdit: (server: ServerProfile) => void;
   onDelete: (server: ServerProfile) => void;
+  onRemoveTag?: (serverId: number, tag: string) => void;
 }
 
 export const ServerCard: React.FC<ServerCardProps> = ({
@@ -38,7 +40,8 @@ export const ServerCard: React.FC<ServerCardProps> = ({
   onOpenTunnels,
   onOpenDatabase,
   onEdit,
-  onDelete
+  onDelete,
+  onRemoveTag
 }) => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
@@ -166,7 +169,22 @@ export const ServerCard: React.FC<ServerCardProps> = ({
       {server.tags && server.tags.length > 0 && (
         <div className="server-tags-row">
           {server.tags.map((tag) => (
-            <span key={tag} className="tag-badge">#{tag}</span>
+            <span key={tag} className="tag-badge">
+              <span>#{tag}</span>
+              {onRemoveTag && (
+                <button
+                  type="button"
+                  className="tag-remove-btn"
+                  title={`Remove tag #${tag} from ${server.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveTag(server.id, tag);
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </span>
           ))}
         </div>
       )}

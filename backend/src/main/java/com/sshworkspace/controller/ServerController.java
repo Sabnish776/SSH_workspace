@@ -301,6 +301,59 @@ public class ServerController {
         return ResponseEntity.ok(tags);
     }
 
+    @DeleteMapping("/tags/{name}")
+    @Transactional
+    public ResponseEntity<?> deleteTagGlobally(@AuthenticationPrincipal UserPrincipal principal,
+                                               @PathVariable String name) {
+        String cleanTagName = name.trim().replaceAll("^#+", "");
+        Optional<Tag> tagOpt = tagRepository.findByUserIdAndName(principal.getId(), cleanTagName);
+
+        // Detach this tag from all servers belonging to this user
+        List<ServerProfile> servers = serverRepository.findByUserId(principal.getId());
+        boolean detachedFromAny = false;
+        for (ServerProfile server : servers) {
+            if (server.getTags() != null) {
+                boolean removed = server.getTags().removeIf(t ->
+                        (tagOpt.isPresent() && Objects.equals(t.getId(), tagOpt.get().getId())) ||
+                        cleanTagName.equalsIgnoreCase(t.getName())
+                );
+                if (removed) {
+                    serverRepository.save(server);
+                    detachedFromAny = true;
+                }
+            }
+        }
+
+        if (tagOpt.isPresent()) {
+            tagRepository.delete(tagOpt.get());
+        } else if (!detachedFromAny) {
+            return ResponseEntity.notFound().build();
+        }
+
+        auditService.recordEvent(principal.getId(), cleanTagName, "TAG_DELETE", "SUCCESS", "Deleted tag globally and unlinked from servers");
+        return ResponseEntity.ok(Map.of("message", "Tag deleted successfully and unlinked from all servers", "tag", cleanTagName));
+    }
+
+    @DeleteMapping("/{id}/tags/{tagName}")
+    @Transactional
+    public ResponseEntity<ServerResponse> removeTagFromServer(@AuthenticationPrincipal UserPrincipal principal,
+                                                              @PathVariable Long id,
+                                                              @PathVariable String tagName) {
+        ServerProfile server = serverRepository.findByIdAndUserId(id, principal.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Server not found"));
+
+        String cleanTagName = tagName.trim().replaceAll("^#+", "");
+        if (server.getTags() != null) {
+            boolean removed = server.getTags().removeIf(t -> cleanTagName.equalsIgnoreCase(t.getName()));
+            if (removed) {
+                server = serverRepository.save(server);
+                auditService.recordEvent(principal.getId(), server.getName(), "TAG_REMOVE", "SUCCESS", "Removed tag #" + cleanTagName + " from server");
+            }
+        }
+
+        return ResponseEntity.ok(mapToResponse(server));
+    }
+
     private ServerResponse mapToResponse(ServerProfile server) {
         String groupName = null;
         if (server.getGroupId() != null) {

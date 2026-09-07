@@ -13,7 +13,7 @@ import { ServiceManagerModal } from './components/services/ServiceManagerModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { api, authStorage } from './api/client';
 import { User, ServerProfile, TerminalTabItem, ServerCreateInput } from './types';
-import { Search, Server, Plus, Layers, Tag as TagIcon } from 'lucide-react';
+import { Search, Server, Plus, Layers, Tag as TagIcon, Trash2 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(authStorage.getUser());
@@ -210,6 +210,30 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleDeleteGlobalTag = async (tagName: string) => {
+    if (!confirm(`Delete tag "#${tagName}" globally?\n\nThis will remove this tag from all servers currently tagged with it.`)) {
+      return;
+    }
+    try {
+      await api.servers.deleteTag(tagName);
+      if (selectedTag === tagName) {
+        setSelectedTag(null);
+      }
+      fetchServers();
+    } catch (err: any) {
+      alert(`Failed to delete tag: ${err.message}`);
+    }
+  };
+
+  const handleRemoveTagFromServer = async (serverId: number, tagName: string) => {
+    try {
+      await api.servers.removeTag(serverId, tagName);
+      fetchServers();
+    } catch (err: any) {
+      alert(`Failed to remove tag: ${err.message}`);
+    }
+  };
+
   // Filtered servers
   const filteredServers = servers.filter((s) => {
     const matchesSearch =
@@ -288,13 +312,25 @@ export const App: React.FC = () => {
               {tags.map((t) => (
                 <div
                   key={t}
-                  className={`sidebar-item ${selectedTag === t ? 'active' : ''}`}
+                  className={`sidebar-item sidebar-tag-item ${selectedTag === t ? 'active' : ''}`}
                   onClick={() => setSelectedTag(t === selectedTag ? null : t)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <TagIcon size={12} />
                     <span>#{t}</span>
                   </div>
+                  <button
+                    type="button"
+                    className="sidebar-tag-delete-btn"
+                    title={`Delete tag #${t} globally (removes from all servers)`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteGlobalTag(t);
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -375,6 +411,7 @@ export const App: React.FC = () => {
                     onOpenDatabase={(s) => setDatabaseServer(s)}
                     onEdit={(s) => { setEditServer(s); setServerModalOpen(true); }}
                     onDelete={handleDeleteServer}
+                    onRemoveTag={handleRemoveTagFromServer}
                   />
                 ))}
               </div>

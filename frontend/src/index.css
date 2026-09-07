@@ -376,6 +376,35 @@ body::before {
   font-weight: 600;
 }
 
+.sidebar-tag-item {
+  position: relative;
+}
+
+.sidebar-tag-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s ease;
+}
+
+.sidebar-tag-item:hover .sidebar-tag-delete-btn {
+  opacity: 0.7;
+}
+
+.sidebar-tag-delete-btn:hover {
+  opacity: 1 !important;
+  color: #ff3366 !important;
+  background: rgba(255, 51, 102, 0.15);
+  transform: scale(1.1);
+}
+
 .badge-count {
   background: rgba(255, 255, 255, 0.08);
   padding: 0.15rem 0.5rem;
@@ -574,6 +603,30 @@ body::before {
   border-radius: var(--radius-sm);
   border: 1px solid rgba(0, 240, 255, 0.15);
   font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-badge .tag-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--accent-cyan);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}
+
+.tag-badge .tag-remove-btn:hover {
+  opacity: 1;
+  color: #ff3366;
+  transform: scale(1.15);
 }
 
 .server-card-actions {

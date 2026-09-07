@@ -122,7 +122,15 @@ export const api = {
     connect: async (id: number) =>
       apiFetch<ConnectResult>(`/api/servers/${id}/connect`, { method: 'POST' }),
     getGroups: async () => apiFetch<string[]>('/api/servers/groups'),
-    getTags: async () => apiFetch<string[]>('/api/servers/tags')
+    getTags: async () => apiFetch<string[]>('/api/servers/tags'),
+    deleteTag: async (tagName: string) => {
+      const clean = encodeURIComponent(tagName.replace(/^#+/, '').trim());
+      return apiFetch<{ message: string; tag: string }>(`/api/servers/tags/${clean}`, { method: 'DELETE' });
+    },
+    removeTag: async (serverId: number, tagName: string) => {
+      const clean = encodeURIComponent(tagName.replace(/^#+/, '').trim());
+      return apiFetch<ServerProfile>(`/api/servers/${serverId}/tags/${clean}`, { method: 'DELETE' });
+    }
   },
 
   sessions: {
