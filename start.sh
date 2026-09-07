@@ -50,14 +50,22 @@ fi
 # 4. Start Spring Boot Backend
 echo "=== 1. Starting Spring Boot Backend (port 8080) ==="
 cd "$DIR/backend"
-setsid nohup $MVN_CMD spring-boot:run </dev/null > backend.log 2>&1 &
+if command -v setsid >/dev/null 2>&1; then
+    setsid nohup $MVN_CMD spring-boot:run </dev/null > backend.log 2>&1 &
+else
+    nohup $MVN_CMD spring-boot:run </dev/null > backend.log 2>&1 &
+fi
 BACKEND_PID=$!
 echo "Backend started (PID: $BACKEND_PID, logs: backend/backend.log)"
 
 # 5. Start React Frontend Dev Server
 echo "=== 2. Starting React Frontend Dev Server (port 5173) ==="
 cd "$DIR/frontend"
-setsid nohup npm run dev </dev/null > frontend.log 2>&1 &
+if command -v setsid >/dev/null 2>&1; then
+    setsid nohup npm run dev </dev/null > frontend.log 2>&1 &
+else
+    nohup npm run dev </dev/null > frontend.log 2>&1 &
+fi
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID, logs: frontend/frontend.log)"
 

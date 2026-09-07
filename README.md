@@ -158,19 +158,34 @@ Devkit/
 * **Node.js 20+** & **npm**
 
 ### 1-Click Startup
-Clone the repository and run:
-```bash
-./start.sh
-```
+
+Clone the repository and run the script for your OS:
+
+* **Linux & macOS**:
+  ```bash
+  chmod +x start.sh stop.sh
+  ./start.sh
+  ```
+  *(To stop: `./stop.sh`)*
+
+* **Windows (Command Prompt / Double-Click)**:
+  ```cmd
+  start.bat
+  ```
+  *(To stop: `stop.bat`)*
+
+* **Windows (PowerShell)**:
+  ```powershell
+  .\start.ps1
+  ```
+  *(To stop: `.\stop.ps1`)*
 
 This will automatically:
-1. Start the Spring Boot backend with embedded SQLite on `http://localhost:8080`.
-2. Start the React Cyber-Ops frontend on `http://localhost:5173`.
-
-To stop all services:
-```bash
-./stop.sh
-```
+1. Detect prerequisites (Java 21+, Node 20+, Maven).
+2. Clean up any stale processes on ports `8080` & `5173`.
+3. Start the Spring Boot backend with embedded SQLite on `http://localhost:8080`.
+4. Start the React Cyber-Ops frontend on `http://localhost:5173`.
+5. Verify readiness and launch your browser.
 
 ### Manual Startup
 
