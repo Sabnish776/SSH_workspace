@@ -1,122 +1,324 @@
 # SSH Workspace Manager
 
-**Secure browser-based SSH management with real interactive web terminals, SFTP file management, and diagnostics.**  
-Built according to Software Requirements Specification (SRS v1.0).
+**A futuristic, Cyber-Ops web-based SSH workspace, remote service manager, database console, and SFTP browser.**  
+Connect to remote servers, cloud VPS instances, local machines, or Docker containers with zero keystroke latency, embedded zero-config SQLite storage, and deep automated service discovery.
 
 ---
 
-## Architecture Overview
+## System Architecture
 
 ```
-+--------------------------------------------------------------------------+
-| Browser (React + TypeScript + xterm.js + Lucide Icons)                   |
-|  - Dashboard: Server cards, Group/Tag filters, Health diagnostics         |
-|  - Multi-tab Interactive Terminal: Real ANSI colors, resize, PTY stream  |
-|  - SFTP File Manager: Directory tree, upload, download, delete, rename   |
-|  - Server Modal: Add/Edit profile, Password/Key auth, Test connection   |
-+--------------------+----------------------------------+------------------+
-                     | HTTPS / REST                     | WSS (WebSocket)
-                     v                                  v
-+--------------------+----------------------------------+------------------+
-| Spring Boot Backend (Java 21, Spring Security, JPA/Hibernate, SQLite)     |
-|  - Security & Auth: JWT authentication, session isolation                |
-|  - Credential Vault: AES-256-GCM encryption at rest with master key      |
-|  - SshSessionManager: Apache MINA SSHD client, PTY allocation, Shell I/O |
-|  - Service Tunnels: Local port forwarding trackers (MySQL, Redis, APIs)  |
-|  - Database Console: Direct remote query execution & tabular viewer       |
-|  - TerminalWebSocketHandler: Bidirectional JSON stream (/ws/terminal/{id})|
-|  - SftpService: Directory listing, stream upload/download, safe paths   |
-|  - MonitoringService: Read-only non-interactive SSH exec (top/df/uptime) |
-|  - AuditService: Event recording with secret redaction                   |
-+--------------------+-----------------------------------------------------+
-                     | Embedded JDBC                    | SSH / SFTP
-                     v                                  v
-          SQLite (`sshworkspace.db`)           Remote SSH Targets
++----------------------------------------------------------------------------------------------------+
+| Browser UI (React 18 + TypeScript + Vite + xterm.js + Lucide Icons + Cyber-Ops Design System)     |
+|                                                                                                    |
+|  - Dashboard: Server cards, Group/Tag filtering, live status indicators, "Connecting..." feedback  |
+|  - Multi-Tab Terminals: Persistent PTY streams, scrollback retention, ANSI colors, fit-addon      |
+|  - 0ms Instant Command Bar ("0ms EXEC //"): Zero-latency local line buffer with command history    |
+|  - Service Manager Console: Automated SSH probe, category filters, daemon logs, lifecycle controls |
+|  - CLI Command Inspector: Live command previews, preset templates, and on-the-fly argument editing |
+|  - Service Tunnels: Local port forwarding manager & pre-populated bridges                         |
+|  - Database Query Console: Direct remote SQL & Redis query executor with tabular data grids        |
+|  - SFTP File Browser: Directory tree, upload/download, rename, mkdir, file deletion                |
+|  - Telemetry HUD & Command Palette: System statistics bar, quick shortcuts via Ctrl+K, CRT effects |
++---------------------------------┬----------------------------------┬-------------------------------+
+                                  | HTTPS / REST                     | WSS (WebSocket)
+                                  v                                  v
++---------------------------------┴----------------------------------┴-------------------------------+
+| Spring Boot Backend (Java 21, Spring Security, Spring Data JPA, SQLite, Apache MINA SSHD)          |
+|                                                                                                    |
+|  - Security & Authentication: Stateless JWT auth, user/session isolation                           |
+|  - Credential Vault: AES-256-GCM encryption at rest with 256-bit master key                        |
+|  - SshClientService: Apache MINA SSH Client with TCP_NODELAY and unverified server key handling    |
+|  - ServiceManagerService: Composite non-destructive probe (ss/netstat, systemctl, OpenRC, docker)  |
+|  - TerminalWebSocketHandler: Full-duplex JSON terminal I/O streaming (/ws/terminal/{sessionId})     |
+|  - DatabaseService: Remote execution of queries across MySQL, MariaDB, PostgreSQL, and Redis       |
+|  - TunnelService: Local port forwarding configuration and connection string generation             |
+|  - SftpService: Streamed file transfer, path sanitization, and remote directory traversal          |
+|  - MonitoringService: Controlled read-only system telemetry (/proc/meminfo, loadavg, uptime)       |
+|  - AuditService: Comprehensive event audit logging with automatic secret redaction                 |
++---------------------------------┬----------------------------------┬-------------------------------+
+                                  | Embedded JDBC                    | SSH Exec / PTY / SFTP Channels
+                                  v                                  v
+                 SQLite (`backend/sshworkspace.db`)         Remote SSH Targets / Cloud / Localhost
 ```
 
 ---
 
-## Features
+## Core Features
 
-- **Zero-Config Embedded SQLite Database**: Stores all profiles, encrypted credentials, and tunnels in `sshworkspace.db` without requiring an external database server or Docker container.
-- **Service Tunnels & Port Forwarding**: Forward isolated remote services (MySQL, PostgreSQL, Redis, MongoDB, Web apps, Docker) securely to `127.0.0.1` on your local machine over SSH.
-- **Interactive Database & Service Console**: Execute queries directly on remote hosts (MySQL, PostgreSQL, Redis) with real-time latency tracking and tabular result grids.
-- **Real Interactive Web Terminal**: Powered by `@xterm/xterm` with bidirectional WebSocket streaming, true PTY allocation (`xterm-256color`), and `TCP_NODELAY` for zero keystroke latency.
-- **Multi-Tab Terminal Sessions**: Connect to multiple remote servers simultaneously and switch between live interactive tabs seamlessly.
-- **SFTP Remote File Manager**: Browse directory hierarchy, view file permissions and sizes, upload files, download files, delete, rename, and create folders.
-- **Server Health Diagnostics**: Monitor CPU load averages, RAM allocation, disk capacity, and system uptime using secure read-only commands over SSH.
-- **Cyber-Ops Hacker Aesthetic**: Telemetry HUD bar, `Ctrl+K` Command Palette, scanlines overlay, and dark cyber grid UI.
-- **Security & Credential Vault**:
-  - Passwords and SSH private keys are encrypted at rest using **AES-256-GCM** with authenticated tags (SEC-001).
-  - Private keys and passwords are never exposed in API responses or browser local storage (SEC-002).
-  - Security audit logging with automatic secret redaction (SEC-007).
-  - Strict user and session isolation (SEC-005).
+### 1. Remote & Local Service Manager
+* **Automated Non-Destructive Probe**:
+  Executes an SSH exec channel probe in $\approx 70\text{ms}$ inspecting:
+  * **Listening Sockets**: `ss -tulpn` and `netstat -tulpn`
+  * **Init Daemons**: `systemctl list-units` (Debian/Ubuntu/RHEL) and `rc-status` (Alpine OpenRC)
+  * **Containers**: `docker ps -a`
+  * **Process Table**: `ps -eo pid,comm,%cpu,%mem,etime`
+* **Intelligent Heuristics & Correlation**: Automatically categorizes detected items into **Databases** (MySQL, PostgreSQL, Redis, MongoDB), **Web & APIs** (Nginx, Apache, Caddy, Node, Python), **Containers** (Docker), **System Daemons** (OpenSSH, Cron), and **Open Ports**.
+* **Fresh Calculation & Zero Stale Data**: Every time the Service Manager modal opens or switches servers, existing telemetry and service lists are wiped clean immediately, showing live `SCANNING...` indicators and a radar sweep until fresh results are verified.
+* **Live Daemon Logs**: Stream recent log output directly via `journalctl`, `docker logs`, or system log files with real-time search filtering and copy-to-clipboard.
+* **Lifecycle Controls**: Confirmation-safe `Start`, `Stop`, `Restart`, and `Reload` triggers for services.
+* **Workflow Bridges**:
+  * **One-Click Port Forwarding**: Pre-fills the Tunnel Manager with the service's remote port in one click.
+  * **One-Click Database Console**: Jumps directly into the SQL/Redis query console.
+  * **One-Click Interactive CLI Shell**: Launches an interactive SSH terminal tab and immediately enters the service CLI (e.g. `redis-cli`, `mysql -u root -p`).
+
+### 2. CLI Command Inspector & Editor
+* **Command Visibility**: Displays the exact command that will execute right on the service card button (e.g. `>_ redis-cli` or `>_ mysql -u root -p`).
+* **Inspect & Customize**: Clicking the **✏️ Edit** button opens the CLI Launch dialog allowing you to:
+  * Inspect the command before running.
+  * Modify flags, custom usernames, passwords, remote hosts, or OS-specific paths.
+  * Click one of the contextual presets (e.g. `mariadb -u root -p`, `redis-cli -h 127.0.0.1 -p 6379`, `docker exec -it {name} bash`) to insert it immediately.
+  * Save the modified command for the session or launch into an interactive terminal tab immediately.
+* **Custom CLI for Any Service**: Add custom terminal commands on the fly for any detected background daemon or raw port.
+
+### 3. 0ms Instant Command Bar (`0ms EXEC //`)
+* **Eliminates Keystroke Lag**: Remote SSH sessions transmit keystrokes character-by-character across high-latency network connections. The 0ms Command Bar docks at the bottom of each terminal tab, allowing zero-latency local typing, native cursor movement, selection, and editing.
+* **Batch Execution**: Press `Enter` or click `Run` to send the complete command line directly into the remote shell.
+* **Command History**: Navigate previous commands executed in that session using `↑` (Arrow Up) and `↓` (Arrow Down).
+* **Toggleable HUD**: Easily toggle the bar on or off at any time using the `0ms BAR: ON/OFF` badge.
+
+### 4. Terminal History & Multi-Session Persistence
+* **No Reconnection Drops**: Switching between the Dashboard and the Terminals view preserves 100% of open terminal tabs, scrollback history, and active processes without dropping WebSocket connections or unmounting the DOM.
+* **Connecting Feedback**: The "Connect" button on server cards displays a live spinning radar indicator with `Connecting...` text and disables duplicate clicks while establishing the SSH handshake.
+* **Smart Terminal Tabs**: Custom titles, server hostname labels, auto-fit geometry on viewport resize, and clean session termination on tab closure.
+
+### 5. Service Tunnels & Port Forwarding
+* **Secure Local Port Forwarding**: Forward isolated remote databases or internal APIs to `127.0.0.1` on your local machine over SSH.
+* **Quick Presets**: Pre-configured templates for MySQL (`3306`), PostgreSQL (`5432`), Redis (`6379`), MongoDB (`27017`), Web Apps (`8080`), and Docker Daemon (`2375`).
+* **Connection Strings**: Auto-generates copyable connection strings and CLI connection commands.
+
+### 6. Interactive Database Query Console
+* **Direct Remote Execution**: Query remote databases (MySQL, PostgreSQL, Redis) over SSH without opening local ports.
+* **Tabular Results**: View formatted table results with column detection, row counts, execution time metrics, and raw output.
+
+### 7. SFTP Remote File Manager
+* **Full Hierarchy Browsing**: Browse directories, inspect file permissions, file sizes, and modification dates.
+* **File Operations**: Streamed upload, download, file deletion, rename, and directory creation.
+
+### 8. Embedded SQLite Database
+* **Zero External Dependencies**: Stores all profiles, encrypted credentials, and tunnels in `backend/sshworkspace.db`. No PostgreSQL container or external database server required. Cold start in ~4 seconds.
+
+### 9. Security & Credential Vault
+* **AES-256-GCM Encryption**: Passwords and private keys are encrypted at rest using AES-256 in Galois/Counter Mode with 128-bit authentication tags.
+* **Zero Exposure**: Credentials and private keys are never exposed in REST API responses or browser local storage.
+* **Audit Logging**: Automatic event recording with secret and password redaction.
+
+### 10. Cyber-Ops Design System
+* **Modern Aesthetics**: Deep cyber-dark palette (`#080d14`), emerald/cyan/amber neon accents, subtle glassmorphism, glowing borders, CRT scanline toggle, real-time Telemetry HUD, and a quick keyboard command palette (`Ctrl+K`).
 
 ---
 
-## Quick Start Guide
+## Project Structure
 
-### 1. Prerequisites
-- Java 21 & Maven 3.8+
-- Node.js 20+ & npm
-- *(Optional)* Docker (only needed if running the local demo OpenSSH container)
+```
+Devkit/
+├── backend/
+│   ├── src/main/java/com/sshworkspace/
+│   │   ├── config/              # Security, SQLite dialect, WebMvc, WebSocket config
+│   │   ├── controller/          # REST Controllers (Auth, Server, Service, DB, SFTP, Tunnels)
+│   │   ├── dto/                 # Request/Response Data Transfer Objects
+│   │   ├── model/               # JPA Entities (User, ServerProfile, Tunnel, AuditLog)
+│   │   ├── repository/          # Spring Data JPA Repositories
+│   │   ├── security/            # JWT Token Provider, Filters, UserDetails
+│   │   ├── service/             # SshClient, ServiceManager, Database, Sftp, Encryption
+│   │   ├── websocket/           # TerminalWebSocketHandler (Full-duplex PTY streaming)
+│   │   └── SshWorkspaceApplication.java
+│   ├── src/main/resources/
+│   │   ├── application.yml      # SQLite DB, JWT secret, logging config
+│   │   └── db/migration/        # SQLite schema initialization
+│   ├── pom.xml                  # Maven dependencies (Spring Boot 3, Apache MINA, SQLite)
+│   └── sshworkspace.db          # Embedded database file (auto-created)
+├── frontend/
+│   ├── src/
+│   │   ├── api/                 # Axios client, Auth, Server, Service, SFTP endpoints
+│   │   ├── types/               # TypeScript interfaces (ServerProfile, DiscoveredService, etc.)
+│   │   ├── components/
+│   │   │   ├── auth/            # AuthModal (Login & Registration)
+│   │   │   ├── dashboard/       # ServerCard ("Connecting...", Latency, Tags), ServerModal
+│   │   │   ├── database/        # DatabaseConsoleModal (SQL & Redis query executor)
+│   │   │   ├── layout/          # Navbar, CyberHUD, CommandPalette (Ctrl+K)
+│   │   │   ├── monitoring/      # MonitoringModal (CPU, Memory, Uptime metrics)
+│   │   │   ├── services/        # ServiceManagerModal (Probe, CLI Inspector/Editor, Logs)
+│   │   │   ├── sftp/            # FileManagerModal (Directory tree, upload/download)
+│   │   │   ├── terminal/        # TerminalWorkspace, TerminalView (xterm.js + 0ms Bar)
+│   │   │   └── tunnels/         # TunnelManagerModal (Port forward bridge)
+│   │   ├── App.tsx              # Root application router & persistent tab orchestrator
+│   │   └── index.css            # Cyber-Ops design tokens, animations, CRT scanlines
+│   ├── package.json             # React 18, Vite, Lucide Icons, xterm.js
+│   └── vite.config.ts           # Frontend build and proxy settings
+├── docker-compose.yml           # Optional test SSH container (Alpine Linux, port 2222)
+├── Dockerfile.test-server       # Dockerfile for demo Alpine SSH host with Redis & HTTP
+├── start.sh                     # 1-Click start script for backend, frontend, & test container
+└── stop.sh                      # Graceful shutdown script for all services
+```
 
-### 2. Start All Services with One Command
+---
+
+## Getting Started
+
+### Prerequisites
+* **Java 21** & **Maven 3.8+**
+* **Node.js 20+** & **npm**
+* *(Optional)* Docker (only if running the optional demo Alpine SSH container)
+
+### 1-Click Startup
+Clone the repository and run:
 ```bash
 ./start.sh
 ```
-*This starts:*
-- The optional Test OpenSSH Server container on port `2222` (User: `demo`, Password: `demopassword123`)
-- The Spring Boot backend with embedded SQLite on `http://localhost:8080`
-- The React Cyber-Ops frontend on `http://localhost:5173`
 
-To stop everything:
+This will automatically:
+1. Start the test Alpine OpenSSH container on port `2222` (if Docker is available).
+2. Start the Spring Boot backend with embedded SQLite on `http://localhost:8080`.
+3. Start the React Cyber-Ops frontend on `http://localhost:5173`.
+
+To stop all services:
 ```bash
 ./stop.sh
 ```
 
+### Manual Startup
+
+**Backend**:
+```bash
+cd backend
+mvn spring-boot:run
+```
+*Backend runs on `http://localhost:8080` with SQLite at `backend/sshworkspace.db`.*
+
+**Frontend**:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+*Frontend runs on `http://localhost:5173`.*
+
 ---
 
-## Default Test Credentials
+## Default Credentials
 
-- **Web Application Login**:
-  - Email: `admin@example.com`
-  - Password: `password123`
-- **Pre-configured Test SSH Server**:
-  - Host: `localhost`
-  - Port: `2222`
-  - Username: `demo`
-  - Password: `demopassword123`
+### Web Dashboard
+* **URL**: [http://localhost:5173/](http://localhost:5173/)
+* **Email**: `admin@example.com`
+* **Password**: `password123`
+
+### Pre-configured Demo SSH Host
+* **Host**: `localhost`
+* **Port**: `2222`
+* **Username**: `demo`
+* **Password**: `demopassword123`
 
 ---
 
-## API Endpoints
+## Connecting to Your Local Machine
 
+You can use SSH Workspace to manage your local machine:
+
+1. **Ensure OpenSSH Server is running on your machine**:
+   ```bash
+   # Ubuntu / Debian
+   sudo apt update && sudo apt install -y openssh-server
+   sudo systemctl enable --now ssh
+   
+   # Arch Linux
+   sudo pacman -S openssh && sudo systemctl enable --now sshd
+   
+   # Fedora / RHEL
+   sudo dnf install -y openssh-server && sudo systemctl enable --now sshd
+   
+   # macOS
+   # System Settings -> General -> Sharing -> Enable 'Remote Login'
+   ```
+2. **Add the profile in SSH Workspace**:
+   * Open [http://localhost:5173/](http://localhost:5173/) and click **`+ Add Server Profile`**.
+   * **Profile Name**: `Localhost`
+   * **Hostname**: `127.0.0.1` (or `localhost`)
+   * **Port**: `22`
+   * **Username**: Your Linux / macOS account username
+   * **Authentication**: `PASSWORD` (your login password) or `KEY` (your private key)
+3. Click **`Test Connection`** then **`Save Server Profile`**.
+4. You can now use the **Services** module to inspect local daemons, launch terminals, and run commands with **0ms latency**.
+
+---
+
+## Cross-Platform Support
+
+* **Host Machine (where Devkit runs)**:
+  * **Linux, macOS, and Windows** are fully supported.
+  * The backend is written in pure Java 21 using Apache MINA SSHD and standard JDBC with SQLite native shared libraries (including Windows x86/x64, macOS x86_64/ARM64 Apple Silicon, and Linux).
+  * On Windows, run `./start.sh` via Git Bash / WSL, or run standard `mvn spring-boot:run` and `npm run dev`.
+* **Target Machines (SSH hosts)**:
+  * Interactive Terminal, SFTP Browser, and Port Forwarding work with **any SSH-capable operating system** (Linux, BSD, macOS, Windows OpenSSH).
+  * The Service Manager and System Diagnostics modules are optimized for **Linux distributions and Docker environments** (Ubuntu, Debian, Alpine, CentOS, Fedora, Arch, Docker hosts).
+
+---
+
+## Configuration & Environment Variables
+
+| Variable | Default Value | Description |
+|---|---|---|
+| `SERVER_PORT` | `8080` | Backend HTTP & WebSocket port |
+| `SPRING_DATASOURCE_URL` | `jdbc:sqlite:sshworkspace.db` | SQLite JDBC connection string |
+| `JWT_SECRET` | `S3cur3SShW0rksp4c3M4n4g3rJwTS3cr3tK3y2026!@#$` | Secret key used for signing JWT tokens |
+| `JWT_EXPIRATION_MS` | `86400000` (24h) | JWT session validity duration in milliseconds |
+| `APP_MASTER_KEY` | `SshWorkspaceMasterEncKey202632B!` | 32-byte AES key for encrypting credentials at rest |
+
+---
+
+## REST & WebSocket API Reference
+
+### Authentication
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/auth/register` | Register new user |
 | `POST` | `/api/auth/login` | Authenticate & retrieve JWT |
-| `POST` | `/api/auth/logout` | Terminate application session |
-| `GET` | `/api/servers` | List user's server profiles |
-| `POST` | `/api/servers` | Add server profile (credentials encrypted at rest) |
-| `GET` | `/api/servers/{id}` | Get server profile |
+| `POST` | `/api/auth/logout` | Invalidate session |
+
+### Server Management
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/servers` | List server profiles |
+| `POST` | `/api/servers` | Create server profile (credentials encrypted with AES-256-GCM) |
+| `GET` | `/api/servers/{id}` | Get server profile details |
 | `PUT` | `/api/servers/{id}` | Update server profile |
 | `DELETE` | `/api/servers/{id}` | Delete server profile & close active sessions |
-| `POST` | `/api/servers/{id}/test` | Test SSH connectivity & measure latency |
+| `POST` | `/api/servers/{id}/test` | Test SSH connectivity and measure round-trip latency |
 | `POST` | `/api/servers/{id}/connect` | Create authenticated SSH session |
-| `GET` | `/api/sessions` | List active sessions |
-| `DELETE` | `/api/sessions/{id}` | Terminate SSH session |
-| `GET` | `/api/servers/{id}/files` | SFTP browse remote directory |
-| `POST` | `/api/servers/{id}/files/upload` | SFTP file upload |
-| `GET` | `/api/servers/{id}/files/download` | SFTP file download |
-| `DELETE` | `/api/servers/{id}/files` | SFTP file deletion |
-| `POST` | `/api/servers/{id}/files/mkdir` | SFTP create directory |
-| `PUT` | `/api/servers/{id}/files/rename` | SFTP rename file |
-| `GET` | `/api/servers/{id}/monitoring` | Retrieve server health diagnostics |
-| `GET` | `/api/servers/{id}/tunnels` | List port forwarding tunnels for server |
-| `POST` | `/api/servers/{id}/tunnels` | Create new local port forwarding tunnel |
-| `POST` | `/api/tunnels/{id}/start` | Start port forwarding tracker |
-| `POST` | `/api/tunnels/{id}/stop` | Stop port forwarding tracker |
-| `DELETE` | `/api/tunnels/{id}` | Delete port forwarding tunnel |
-| `POST` | `/api/servers/{id}/database/query` | Execute SQL/Redis query over SSH |
-| `WSS` | `/ws/terminal/{sessionId}` | Bidirectional WebSocket terminal stream |
+
+### Service Manager
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/servers/{id}/services` | Discover running services, daemons, ports, and containers |
+| `POST` | `/api/servers/{id}/services/action` | Execute lifecycle action (`START`, `STOP`, `RESTART`, `RELOAD`) |
+| `GET` | `/api/servers/{id}/services/{name}/logs` | Stream recent logs from `journalctl`, `docker logs`, or system files |
+
+### Interactive Terminal
+| Protocol | Endpoint | Description |
+|---|---|---|
+| `WSS` | `/ws/terminal/{sessionId}` | Full-duplex JSON stream (`INPUT`, `OUTPUT`, `RESIZE`, `STATUS`) |
+
+### Service Tunnels & Database Console
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/servers/{id}/tunnels` | List port forwarding tunnels |
+| `POST` | `/api/servers/{id}/tunnels` | Create port forwarding tunnel |
+| `POST` | `/api/tunnels/{id}/start` | Start tunnel tracker |
+| `POST` | `/api/tunnels/{id}/stop` | Stop tunnel tracker |
+| `DELETE` | `/api/tunnels/{id}` | Delete tunnel |
+| `POST` | `/api/servers/{id}/database/query` | Execute SQL/Redis query over SSH channel |
+
+### SFTP Remote Files
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/servers/{id}/files` | List remote files in directory |
+| `POST` | `/api/servers/{id}/files/upload` | Upload file to remote path |
+| `GET` | `/api/servers/{id}/files/download` | Download file from remote path |
+| `DELETE` | `/api/servers/{id}/files` | Delete remote file |
+| `POST` | `/api/servers/{id}/files/mkdir` | Create remote directory |
+| `PUT` | `/api/servers/{id}/files/rename` | Rename remote file |
+
+### Telemetry & Diagnostics
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/servers/{id}/monitoring` | Query CPU load, memory usage, disk, and uptime |
