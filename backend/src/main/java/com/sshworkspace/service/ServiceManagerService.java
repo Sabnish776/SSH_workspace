@@ -34,11 +34,28 @@ public class ServiceManagerService {
     @org.springframework.beans.factory.annotation.Value("${app.ssh.channel-open-timeout-ms:30000}")
     private long channelOpenTimeoutMs;
 
+    public enum RemoteOsType {
+        LINUX,
+        MACOS,
+        WINDOWS
+    }
+
     private static final String NETSTAT_SECTION = "___NETSTAT_SECTION___";
     private static final String SYSTEMD_SECTION = "___SYSTEMD_SECTION___";
     private static final String OPENRC_SECTION = "___OPENRC_SECTION___";
     private static final String DOCKER_SECTION = "___DOCKER_SECTION___";
     private static final String PROCESS_SECTION = "___PROCESS_SECTION___";
+
+    private static final String MAC_LSOF_SECTION = "___MAC_LSOF_SECTION___";
+    private static final String MAC_BREW_SECTION = "___MAC_BREW_SECTION___";
+    private static final String MAC_LAUNCHCTL_SECTION = "___MAC_LAUNCHCTL_SECTION___";
+    private static final String MAC_DOCKER_SECTION = "___MAC_DOCKER_SECTION___";
+    private static final String MAC_PROCESS_SECTION = "___MAC_PROCESS_SECTION___";
+
+    private static final String WIN_NETSTAT_SECTION = "___WIN_NETSTAT_SECTION___";
+    private static final String WIN_SERVICES_SECTION = "___WIN_SERVICES_SECTION___";
+    private static final String WIN_DOCKER_SECTION = "___WIN_DOCKER_SECTION___";
+    private static final String WIN_PROCESS_SECTION = "___WIN_PROCESS_SECTION___";
 
     public List<DiscoveredServiceDto> discoverServices(Long serverId, Long userId) {
         ServerProfile server = serverRepository.findByIdAndUserId(serverId, userId)
@@ -61,27 +78,90 @@ public class ServiceManagerService {
         }
 
         try (ClientSession session = sshClientService.createSession(server, password, privateKey, passphrase)) {
-            // Composite non-destructive probe command
-            String probeCmd = String.format(
-                    "echo '%s'; " +
-                    "(ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null); " +
-                    "echo '%s'; " +
-                    "(command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service --state=running,failed,inactive --all --no-pager --no-legend 2>/dev/null); " +
-                    "echo '%s'; " +
-                    "(command -v rc-status >/dev/null 2>&1 && rc-status -a 2>/dev/null); " +
-                    "echo '%s'; " +
-                    "(command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.ID}};;{{.Names}};;{{.Image}};;{{.Status}};;{{.Ports}}' 2>/dev/null); " +
-                    "echo '%s'; " +
-                    "(ps -eo pid,comm,%%cpu,%%mem,etime 2>/dev/null || ps -o pid,comm 2>/dev/null);",
-                    NETSTAT_SECTION, SYSTEMD_SECTION, OPENRC_SECTION, DOCKER_SECTION, PROCESS_SECTION
-            );
+            RemoteOsType osType = detectRemoteOs(session);
+            log.info("Server '{}' (id={}) identified as OS: {}", server.getName(), serverId, osType);
 
-            String output = executeRemoteCommand(session, probeCmd, 12);
-            return parseProbeOutput(output);
+            if (osType == RemoteOsType.MACOS) {
+                String output = executeRemoteCommand(session, buildMacProbeCommand(), 15);
+                return parseMacProbeOutput(output);
+            } else if (osType == RemoteOsType.WINDOWS) {
+                String output = executeRemoteCommand(session, buildWindowsProbeCommand(), 18);
+                return parseWindowsProbeOutput(output);
+            } else {
+                String output = executeRemoteCommand(session, buildLinuxProbeCommand(), 12);
+                return parseProbeOutput(output);
+            }
         } catch (Exception e) {
             log.error("Failed to discover services on server {}: {}", server.getName(), e.getMessage());
             throw new RuntimeException("Service discovery failed: " + e.getMessage(), e);
         }
+    }
+
+    public RemoteOsType detectRemoteOs(ClientSession session) {
+        String serverVersion = session.getServerVersion();
+        if (serverVersion != null && serverVersion.toLowerCase().contains("windows")) {
+            return RemoteOsType.WINDOWS;
+        }
+        try {
+            String unameOutput = executeRemoteCommand(session, "uname -s 2>/dev/null || echo %OS%", 5).trim();
+            String lower = unameOutput.toLowerCase();
+            if (lower.contains("darwin")) {
+                return RemoteOsType.MACOS;
+            }
+            if (lower.contains("linux") || lower.contains("bsd")) {
+                return RemoteOsType.LINUX;
+            }
+            if (lower.contains("windows") || lower.contains("mingw") || lower.contains("msys") || lower.contains("cygwin") || lower.contains("not recognized")) {
+                return RemoteOsType.WINDOWS;
+            }
+        } catch (Exception e) {
+            log.warn("Remote OS probe command failed: {}, defaulting to LINUX", e.getMessage());
+        }
+        return RemoteOsType.LINUX;
+    }
+
+    public String buildLinuxProbeCommand() {
+        return String.format(
+                "echo '%s'; " +
+                "(ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null); " +
+                "echo '%s'; " +
+                "(command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service --state=running,failed,inactive --all --no-pager --no-legend 2>/dev/null); " +
+                "echo '%s'; " +
+                "(command -v rc-status >/dev/null 2>&1 && rc-status -a 2>/dev/null); " +
+                "echo '%s'; " +
+                "(command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.ID}};;{{.Names}};;{{.Image}};;{{.Status}};;{{.Ports}}' 2>/dev/null); " +
+                "echo '%s'; " +
+                "(ps -eo pid,comm,%%cpu,%%mem,etime 2>/dev/null || ps -o pid,comm 2>/dev/null);",
+                NETSTAT_SECTION, SYSTEMD_SECTION, OPENRC_SECTION, DOCKER_SECTION, PROCESS_SECTION
+        );
+    }
+
+    public String buildMacProbeCommand() {
+        return String.format(
+                "echo '%s'; " +
+                "(/usr/sbin/lsof -iTCP -sTCP:LISTEN -n -P 2>/dev/null || lsof -iTCP -sTCP:LISTEN -n -P 2>/dev/null); " +
+                "echo '%s'; " +
+                "(brew services list 2>/dev/null || /opt/homebrew/bin/brew services list 2>/dev/null || /usr/local/bin/brew services list 2>/dev/null); " +
+                "echo '%s'; " +
+                "(launchctl list 2>/dev/null); " +
+                "echo '%s'; " +
+                "(command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.ID}};;{{.Names}};;{{.Image}};;{{.Status}};;{{.Ports}}' 2>/dev/null); " +
+                "echo '%s'; " +
+                "(ps -eo pid,comm,%%cpu,%%mem,etime 2>/dev/null || ps -o pid,comm 2>/dev/null);",
+                MAC_LSOF_SECTION, MAC_BREW_SECTION, MAC_LAUNCHCTL_SECTION, MAC_DOCKER_SECTION, MAC_PROCESS_SECTION
+        );
+    }
+
+    public String buildWindowsProbeCommand() {
+        return "powershell -NoProfile -NonInteractive -Command \"" +
+                "Write-Output '" + WIN_NETSTAT_SECTION + "'; " +
+                "netstat -ano | Select-String -Pattern 'LISTENING'; " +
+                "Write-Output '" + WIN_SERVICES_SECTION + "'; " +
+                "Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | ForEach-Object { \\\"$($_.Name);;$($_.DisplayName);;$($_.State);;$($_.ProcessId);;$($_.StartMode)\\\" }; " +
+                "Write-Output '" + WIN_DOCKER_SECTION + "'; " +
+                "if (Get-Command docker -ErrorAction SilentlyContinue) { docker ps -a --format '{{.ID}};;{{.Names}};;{{.Image}};;{{.Status}};;{{.Ports}}' }; " +
+                "Write-Output '" + WIN_PROCESS_SECTION + "'; " +
+                "Get-Process -ErrorAction SilentlyContinue | ForEach-Object { \\\"$($_.Id);;$($_.ProcessName);;$([math]::Round($_.CPU, 1));;$([math]::Round($_.WorkingSet64 / 1MB, 1))MB\\\" }\"";
     }
 
     public ServiceActionResponseDto executeAction(Long serverId, Long userId, ServiceActionRequestDto request) {
@@ -120,6 +200,27 @@ public class ServiceManagerService {
 
         if ("DOCKER".equals(source)) {
             remoteCmd = String.format("docker %s %s 2>&1", actionLower, safeServiceName);
+        } else if ("BREW".equals(source)) {
+            String brewAction = "reload".equals(actionLower) ? "restart" : actionLower;
+            remoteCmd = String.format("(brew services %s %s || /opt/homebrew/bin/brew services %s %s || /usr/local/bin/brew services %s %s) 2>&1",
+                    brewAction, safeServiceName, brewAction, safeServiceName, brewAction, safeServiceName);
+        } else if ("LAUNCHD".equals(source)) {
+            if ("stop".equals(actionLower)) {
+                remoteCmd = String.format("launchctl stop %s 2>&1", safeServiceName);
+            } else if ("start".equals(actionLower)) {
+                remoteCmd = String.format("launchctl start %s 2>&1", safeServiceName);
+            } else {
+                remoteCmd = String.format("(launchctl kickstart -k %s || (launchctl stop %s && launchctl start %s)) 2>&1",
+                        safeServiceName, safeServiceName, safeServiceName);
+            }
+        } else if ("WINDOWS_SERVICE".equals(source)) {
+            if ("start".equals(actionLower)) {
+                remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Start-Service -Name '%s'\"", safeServiceName);
+            } else if ("stop".equals(actionLower)) {
+                remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Stop-Service -Name '%s' -Force\"", safeServiceName);
+            } else {
+                remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Restart-Service -Name '%s' -Force\"", safeServiceName);
+            }
         } else if ("OPENRC".equals(source)) {
             remoteCmd = String.format("(sudo rc-service %s %s || rc-service %s %s) 2>&1",
                     safeServiceName, actionLower, safeServiceName, actionLower);
@@ -173,6 +274,18 @@ public class ServiceManagerService {
         String logCmd;
         if ("DOCKER".equals(safeSource)) {
             logCmd = String.format("docker logs --tail 100 %s 2>&1", safeServiceName);
+        } else if ("BREW".equals(safeSource)) {
+            logCmd = String.format(
+                    "(cat /opt/homebrew/var/log/%s*.log 2>/dev/null || cat /usr/local/var/log/%s*.log 2>/dev/null || cat ~/Library/Logs/%s*.log 2>/dev/null || cat /var/log/%s*.log 2>/dev/null || log show --predicate 'process == \"%s\"' --last 10m 2>/dev/null) | tail -n 100",
+                    safeServiceName, safeServiceName, safeServiceName, safeServiceName, safeServiceName);
+        } else if ("LAUNCHD".equals(safeSource)) {
+            logCmd = String.format(
+                    "(cat /var/log/%s*.log 2>/dev/null || cat ~/Library/Logs/%s*.log 2>/dev/null || log show --predicate 'process == \"%s\"' --last 10m 2>/dev/null) | tail -n 100",
+                    safeServiceName, safeServiceName, safeServiceName);
+        } else if ("WINDOWS_SERVICE".equals(safeSource)) {
+            logCmd = String.format(
+                    "powershell -NoProfile -NonInteractive -Command \"Get-WinEvent -FilterHashtable @{LogName='Application'} -MaxEvents 100 -ErrorAction SilentlyContinue | Where-Object { $_.ProviderName -like '*%s*' -or $_.Message -like '*%s*' } | Format-Table TimeCreated, Message -Wrap -AutoSize | Out-String -Width 120\"",
+                    safeServiceName, safeServiceName);
         } else if ("SYSTEMD".equals(safeSource)) {
             logCmd = String.format("journalctl -u %s -n 100 --no-pager 2>&1 || journalctl -u %s.service -n 100 --no-pager 2>&1",
                     safeServiceName, safeServiceName);
@@ -220,7 +333,7 @@ public class ServiceManagerService {
         }
     }
 
-    private List<DiscoveredServiceDto> parseProbeOutput(String probeOutput) {
+    public List<DiscoveredServiceDto> parseProbeOutput(String probeOutput) {
         Map<String, DiscoveredServiceDto> serviceMap = new LinkedHashMap<>();
 
         String netstatOutput = extractSection(probeOutput, NETSTAT_SECTION, SYSTEMD_SECTION);
@@ -245,6 +358,392 @@ public class ServiceManagerService {
         parseOpenRc(openrcOutput, serviceMap);
 
         return new ArrayList<>(serviceMap.values());
+    }
+
+    public List<DiscoveredServiceDto> parseMacProbeOutput(String probeOutput) {
+        Map<String, DiscoveredServiceDto> serviceMap = new LinkedHashMap<>();
+
+        String lsofOutput = extractSection(probeOutput, MAC_LSOF_SECTION, MAC_BREW_SECTION);
+        String brewOutput = extractSection(probeOutput, MAC_BREW_SECTION, MAC_LAUNCHCTL_SECTION);
+        String launchctlOutput = extractSection(probeOutput, MAC_LAUNCHCTL_SECTION, MAC_DOCKER_SECTION);
+        String dockerOutput = extractSection(probeOutput, MAC_DOCKER_SECTION, MAC_PROCESS_SECTION);
+        String processOutput = extractSection(probeOutput, MAC_PROCESS_SECTION, null);
+
+        // 1. Process table
+        Map<Integer, ProcessInfo> processMap = parseProcesses(processOutput);
+
+        // 2. Docker
+        parseDocker(dockerOutput, serviceMap);
+
+        // 3. Listening ports via lsof
+        parseMacLsof(lsofOutput, serviceMap, processMap);
+
+        // 4. Homebrew services
+        parseMacBrew(brewOutput, serviceMap);
+
+        // 5. Launchctl services
+        parseMacLaunchctl(launchctlOutput, serviceMap);
+
+        return new ArrayList<>(serviceMap.values());
+    }
+
+    private void parseMacLsof(String lsofOutput, Map<String, DiscoveredServiceDto> serviceMap, Map<Integer, ProcessInfo> processMap) {
+        if (lsofOutput.isBlank()) return;
+
+        // Pattern matching standard lsof:
+        // mysqld   1234 sabu  24u  IPv4 0x... 0t0  TCP 127.0.0.1:3306 (LISTEN)
+        // redis-se 5678 sabu   6u  IPv4 0x... 0t0  TCP *:6379 (LISTEN)
+        Pattern linePattern = Pattern.compile("^(\\S+)\\s+(\\d+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+TCP\\s+(\\S+):(\\d+)\\s+\\(LISTEN\\)", Pattern.CASE_INSENSITIVE);
+
+        for (String line : lsofOutput.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || trimmed.startsWith("COMMAND")) continue;
+
+            Matcher m = linePattern.matcher(trimmed);
+            String comm = "";
+            int pid = 0;
+            String bindAddr = "0.0.0.0";
+            int port = 0;
+
+            if (m.find()) {
+                comm = m.group(1);
+                try {
+                    pid = Integer.parseInt(m.group(2));
+                    port = Integer.parseInt(m.group(4));
+                } catch (NumberFormatException ignored) {
+                    continue;
+                }
+                bindAddr = m.group(3).replace("[", "").replace("]", "");
+                if ("*".equals(bindAddr)) bindAddr = "0.0.0.0";
+            } else {
+                // Fallback regex for variations in lsof output
+                Pattern altPattern = Pattern.compile("(?i)TCP\\s+(?:(?:\\[([^\\]]+)\\]|([^:]+)):)?(\\d+)\\s+\\(LISTEN\\)");
+                Matcher m2 = altPattern.matcher(trimmed);
+                if (m2.find()) {
+                    String[] words = trimmed.split("\\s+");
+                    if (words.length >= 2) {
+                        comm = words[0];
+                        try { pid = Integer.parseInt(words[1]); } catch (NumberFormatException ignored) {}
+                    }
+                    try {
+                        port = Integer.parseInt(m2.group(3));
+                    } catch (NumberFormatException ignored) {
+                        continue;
+                    }
+                    String addrGroup = m2.group(1) != null ? m2.group(1) : m2.group(2);
+                    bindAddr = (addrGroup == null || "*".equals(addrGroup)) ? "0.0.0.0" : addrGroup;
+                } else {
+                    continue;
+                }
+            }
+
+            if (port <= 0) continue;
+
+            ProcessInfo procInfo = pid > 0 ? processMap.get(pid) : null;
+            if (procInfo != null && procInfo.comm != null && !procInfo.comm.isBlank()) {
+                comm = procInfo.comm;
+            }
+
+            String serviceKey = "svc-" + comm.toLowerCase();
+            DiscoveredServiceDto existing = serviceMap.get(serviceKey);
+            if (existing != null) {
+                if (!existing.getPorts().contains(port)) {
+                    existing.getPorts().add(port);
+                }
+                if (!existing.getBindAddresses().contains(bindAddr)) {
+                    existing.getBindAddresses().add(bindAddr);
+                }
+                if (existing.getPid() == null && pid > 0) {
+                    existing.setPid(pid);
+                }
+                continue;
+            }
+
+            String category = detectServiceCategory(comm + " " + port);
+            String displayName = formatDisplayName(comm, port);
+
+            DiscoveredServiceDto dto = DiscoveredServiceDto.builder()
+                    .id(serviceKey)
+                    .name(comm.isBlank() ? "port-" + port : comm)
+                    .displayName(displayName)
+                    .category(category)
+                    .status("RUNNING")
+                    .source(pid > 0 ? "PROCESS" : "SOCKET")
+                    .pid(pid > 0 ? pid : null)
+                    .ports(new ArrayList<>(List.of(port)))
+                    .bindAddresses(new ArrayList<>(List.of(bindAddr)))
+                    .cpuPercent(procInfo != null ? procInfo.cpu : null)
+                    .memoryUsage(procInfo != null ? procInfo.mem : null)
+                    .uptime(procInfo != null ? procInfo.uptime : null)
+                    .defaultTunnelPort(port)
+                    .canManage(pid > 0)
+                    .build();
+
+            enrichServiceMetadata(dto);
+            serviceMap.put(serviceKey, dto);
+        }
+    }
+
+    private void parseMacBrew(String brewOutput, Map<String, DiscoveredServiceDto> serviceMap) {
+        if (brewOutput.isBlank()) return;
+
+        for (String line : brewOutput.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || trimmed.startsWith("Name") || trimmed.startsWith("==>")) continue;
+
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length < 2) continue;
+
+            String brewName = parts[0];
+            String stateStr = parts[1].toLowerCase();
+
+            String status = stateStr.startsWith("start") ? "RUNNING" :
+                    stateStr.startsWith("err") ? "FAILED" : "STOPPED";
+
+            DiscoveredServiceDto matched = null;
+            String brewLower = brewName.toLowerCase();
+
+            for (Map.Entry<String, DiscoveredServiceDto> entry : serviceMap.entrySet()) {
+                String key = entry.getKey().replace("svc-", "").toLowerCase();
+                if (key.equals(brewLower) || key.startsWith(brewLower) || brewLower.startsWith(key)) {
+                    matched = entry.getValue();
+                    break;
+                }
+            }
+
+            if (matched != null) {
+                matched.setName(brewName);
+                matched.setSource("BREW");
+                matched.setCanManage(true);
+                matched.setStatus(status);
+            } else if ("RUNNING".equals(status) || "FAILED".equals(status)) {
+                String category = detectServiceCategory(brewName);
+                String serviceKey = "svc-" + brewLower;
+                DiscoveredServiceDto dto = DiscoveredServiceDto.builder()
+                        .id(serviceKey)
+                        .name(brewName)
+                        .displayName(formatDisplayName(brewName, 0))
+                        .category(category)
+                        .status(status)
+                        .source("BREW")
+                        .ports(new ArrayList<>())
+                        .bindAddresses(new ArrayList<>())
+                        .canManage(true)
+                        .build();
+
+                enrichServiceMetadata(dto);
+                serviceMap.put(serviceKey, dto);
+            }
+        }
+    }
+
+    private void parseMacLaunchctl(String launchctlOutput, Map<String, DiscoveredServiceDto> serviceMap) {
+        if (launchctlOutput.isBlank()) return;
+
+        for (String line : launchctlOutput.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || trimmed.startsWith("PID")) continue;
+
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length < 3) continue;
+
+            String pidStr = parts[0];
+            Integer pid = null;
+            if (!"-".equals(pidStr)) {
+                try { pid = Integer.parseInt(pidStr); } catch (NumberFormatException ignored) {}
+            }
+
+            if (pid != null) {
+                for (DiscoveredServiceDto dto : serviceMap.values()) {
+                    if (pid.equals(dto.getPid())) {
+                        if (!"BREW".equals(dto.getSource()) && !"DOCKER".equals(dto.getSource())) {
+                            dto.setSource("LAUNCHD");
+                            dto.setCanManage(true);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    public List<DiscoveredServiceDto> parseWindowsProbeOutput(String probeOutput) {
+        Map<String, DiscoveredServiceDto> serviceMap = new LinkedHashMap<>();
+
+        String netstatOutput = extractSection(probeOutput, WIN_NETSTAT_SECTION, WIN_SERVICES_SECTION);
+        String servicesOutput = extractSection(probeOutput, WIN_SERVICES_SECTION, WIN_DOCKER_SECTION);
+        String dockerOutput = extractSection(probeOutput, WIN_DOCKER_SECTION, WIN_PROCESS_SECTION);
+        String processOutput = extractSection(probeOutput, WIN_PROCESS_SECTION, null);
+
+        // 1. Parse Windows processes
+        Map<Integer, ProcessInfo> processMap = parseWindowsProcesses(processOutput);
+
+        // 2. Parse Docker
+        parseDocker(dockerOutput, serviceMap);
+
+        // 3. Parse listening ports via netstat -ano
+        parseWindowsNetstat(netstatOutput, serviceMap, processMap);
+
+        // 4. Parse Windows services via Win32_Service
+        parseWindowsServices(servicesOutput, serviceMap);
+
+        return new ArrayList<>(serviceMap.values());
+    }
+
+    private Map<Integer, ProcessInfo> parseWindowsProcesses(String processOutput) {
+        Map<Integer, ProcessInfo> map = new HashMap<>();
+        if (processOutput.isBlank()) return map;
+
+        for (String line : processOutput.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || !trimmed.contains(";;")) continue;
+
+            String[] parts = trimmed.split(";;");
+            if (parts.length >= 2) {
+                try {
+                    int pid = Integer.parseInt(parts[0].trim());
+                    String comm = parts[1].trim();
+                    String cpu = parts.length > 2 && !parts[2].isBlank() ? parts[2].trim() + "%" : null;
+                    String mem = parts.length > 3 && !parts[3].isBlank() ? parts[3].trim() : null;
+
+                    map.put(pid, new ProcessInfo(pid, comm, cpu, mem, null));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return map;
+    }
+
+    private void parseWindowsNetstat(String netstatOutput, Map<String, DiscoveredServiceDto> serviceMap, Map<Integer, ProcessInfo> processMap) {
+        if (netstatOutput.isBlank()) return;
+
+        Pattern p = Pattern.compile("(?i)(TCP|UDP)\\s+(\\S+):(\\d+)\\s+\\S+\\s+LISTENING\\s+(\\d+)");
+
+        for (String line : netstatOutput.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || !trimmed.toUpperCase().contains("LISTENING")) continue;
+
+            Matcher m = p.matcher(trimmed);
+            if (!m.find()) continue;
+
+            String bindAddr = m.group(2).replace("[", "").replace("]", "");
+            int port = Integer.parseInt(m.group(3));
+            int pid = Integer.parseInt(m.group(4));
+
+            ProcessInfo procInfo = processMap.get(pid);
+            String procName = procInfo != null ? procInfo.comm : guessNameByPort(port);
+
+            String serviceKey = "svc-" + procName.toLowerCase();
+            DiscoveredServiceDto existing = serviceMap.get(serviceKey);
+
+            if (existing != null) {
+                if (!existing.getPorts().contains(port)) {
+                    existing.getPorts().add(port);
+                }
+                if (!existing.getBindAddresses().contains(bindAddr)) {
+                    existing.getBindAddresses().add(bindAddr);
+                }
+                if (existing.getPid() == null && pid > 0) {
+                    existing.setPid(pid);
+                }
+                continue;
+            }
+
+            String category = detectServiceCategory(procName + " " + port);
+            String displayName = formatDisplayName(procName, port);
+
+            DiscoveredServiceDto dto = DiscoveredServiceDto.builder()
+                    .id(serviceKey)
+                    .name(procName)
+                    .displayName(displayName)
+                    .category(category)
+                    .status("RUNNING")
+                    .source(pid > 0 ? "PROCESS" : "SOCKET")
+                    .pid(pid > 0 ? pid : null)
+                    .ports(new ArrayList<>(List.of(port)))
+                    .bindAddresses(new ArrayList<>(List.of(bindAddr.isBlank() ? "0.0.0.0" : bindAddr)))
+                    .cpuPercent(procInfo != null ? procInfo.cpu : null)
+                    .memoryUsage(procInfo != null ? procInfo.mem : null)
+                    .uptime(null)
+                    .defaultTunnelPort(port)
+                    .canManage(pid > 0)
+                    .build();
+
+            enrichServiceMetadata(dto);
+            serviceMap.put(serviceKey, dto);
+        }
+    }
+
+    private void parseWindowsServices(String servicesOutput, Map<String, DiscoveredServiceDto> serviceMap) {
+        if (servicesOutput.isBlank()) return;
+
+        for (String line : servicesOutput.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || !trimmed.contains(";;")) continue;
+
+            String[] parts = trimmed.split(";;");
+            if (parts.length < 3) continue;
+
+            String name = parts[0].trim();
+            String displayName = parts[1].trim();
+            String state = parts[2].trim();
+            String pidStr = parts.length > 3 ? parts[3].trim() : "0";
+
+            Integer pid = null;
+            try {
+                int parsedPid = Integer.parseInt(pidStr);
+                if (parsedPid > 0) pid = parsedPid;
+            } catch (NumberFormatException ignored) {}
+
+            String status = "Running".equalsIgnoreCase(state) ? "RUNNING" :
+                    "Stopped".equalsIgnoreCase(state) ? "STOPPED" : "UNKNOWN";
+
+            DiscoveredServiceDto matched = null;
+            if (pid != null) {
+                for (DiscoveredServiceDto dto : serviceMap.values()) {
+                    if (pid.equals(dto.getPid())) {
+                        matched = dto;
+                        break;
+                    }
+                }
+            }
+
+            if (matched == null) {
+                matched = serviceMap.get("svc-" + name.toLowerCase());
+            }
+
+            if (matched != null) {
+                matched.setName(name);
+                if (displayName != null && !displayName.isBlank()) {
+                    matched.setDisplayName(displayName);
+                }
+                matched.setSource("WINDOWS_SERVICE");
+                matched.setCanManage(true);
+                matched.setStatus(status);
+            } else {
+                String category = detectServiceCategory(name + " " + displayName);
+                boolean isDevService = !category.equals("CUSTOM") && !category.equals("SYSTEM");
+                boolean isRunning = "RUNNING".equals(status);
+
+                if (isDevService && isRunning) {
+                    String serviceKey = "svc-" + name.toLowerCase();
+                    DiscoveredServiceDto dto = DiscoveredServiceDto.builder()
+                            .id(serviceKey)
+                            .name(name)
+                            .displayName(displayName.isBlank() ? formatDisplayName(name, 0) : displayName)
+                            .category(category)
+                            .status(status)
+                            .source("WINDOWS_SERVICE")
+                            .pid(pid)
+                            .ports(new ArrayList<>())
+                            .bindAddresses(new ArrayList<>())
+                            .canManage(true)
+                            .build();
+
+                    enrichServiceMetadata(dto);
+                    serviceMap.put(serviceKey, dto);
+                }
+            }
+        }
     }
 
     private String extractSection(String content, String startMarker, String endMarker) {
@@ -531,6 +1030,11 @@ public class ServiceManagerService {
             dto.setCategory("DATABASE");
             dto.setCliCommand("mongosh");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(27017);
+        } else if (lower.contains("mssql") || lower.contains("sql server") || lower.contains("sqlservr")) {
+            dto.setDisplayName("Microsoft SQL Server");
+            dto.setCategory("DATABASE");
+            dto.setCliCommand("sqlcmd -S localhost -E");
+            if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(1433);
         } else if (lower.contains("nginx")) {
             dto.setDisplayName("Nginx HTTP / Reverse Proxy Server");
             dto.setCategory("WEB");
@@ -545,6 +1049,11 @@ public class ServiceManagerService {
             dto.setDisplayName("Caddy Web Server");
             dto.setCategory("WEB");
             dto.setCliCommand("caddy version");
+            if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(80);
+        } else if (lower.contains("iis") || lower.contains("w3svc")) {
+            dto.setDisplayName("IIS Web Server");
+            dto.setCategory("WEB");
+            dto.setCliCommand("iisreset /status");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(80);
         } else if (lower.contains("sshd") || lower.contains("openssh")) {
             dto.setDisplayName("OpenSSH Remote Daemon");
@@ -574,6 +1083,10 @@ public class ServiceManagerService {
                 dto.setCategory("DATABASE");
                 dto.setDisplayName("MongoDB Service (Port 27017)");
                 dto.setCliCommand("mongosh");
+            } else if (firstPort == 1433) {
+                dto.setCategory("DATABASE");
+                dto.setDisplayName("MS SQL Server (Port 1433)");
+                dto.setCliCommand("sqlcmd -S localhost -E");
             } else if (firstPort == 80 || firstPort == 443 || firstPort == 8080 || firstPort == 3000 || firstPort == 5000) {
                 dto.setCategory("WEB");
             }
@@ -584,16 +1097,18 @@ public class ServiceManagerService {
         String lower = text.toLowerCase();
         if (lower.contains("mysql") || lower.contains("mariadb") || lower.contains("postgres") ||
             lower.contains("redis") || lower.contains("mongo") || lower.contains("sqlite") ||
-            lower.contains("3306") || lower.contains("5432") || lower.contains("6379") || lower.contains("27017")) {
+            lower.contains("mssql") || lower.contains("sqlserver") || lower.contains("sqlservr") ||
+            lower.contains("3306") || lower.contains("5432") || lower.contains("6379") || lower.contains("27017") || lower.contains("1433")) {
             return "DATABASE";
         }
         if (lower.contains("nginx") || lower.contains("apache") || lower.contains("httpd") ||
             lower.contains("caddy") || lower.contains("express") || lower.contains("fastapi") ||
+            lower.contains("iis") || lower.contains("w3svc") ||
             lower.contains("80") || lower.contains("443") || lower.contains("8080") || lower.contains("3000") || lower.contains("5000")) {
             return "WEB";
         }
         if (lower.contains("node") || lower.contains("python") || lower.contains("java") ||
-            lower.contains("ruby") || lower.contains("php") || lower.contains("golang")) {
+            lower.contains("ruby") || lower.contains("php") || lower.contains("golang") || lower.contains("powershell")) {
             return "RUNTIME";
         }
         if (lower.contains("docker") || lower.contains("container") || lower.contains("podman") || lower.contains("k8s")) {

@@ -631,20 +631,43 @@ export const ServiceManagerModal: React.FC<ServiceManagerModalProps> = ({
 
                         {/* Badges row */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px', flexWrap: 'wrap' }}>
-                          <span
-                            style={{
-                              fontSize: '0.65rem',
-                              fontFamily: 'var(--font-mono)',
-                              fontWeight: 600,
-                              color: 'var(--accent-cyan)',
-                              background: 'rgba(0, 240, 255, 0.1)',
-                              border: '1px solid rgba(0, 240, 255, 0.25)',
-                              padding: '1px 6px',
-                              borderRadius: '3px'
-                            }}
-                          >
-                            {svc.source}
-                          </span>
+                          {(() => {
+                            const getSourceBadgeConfig = (source: string) => {
+                              switch (source) {
+                                case 'BREW':
+                                  return { label: 'HOMEBREW', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.35)' };
+                                case 'LAUNCHD':
+                                  return { label: 'LAUNCHD', color: '#c084fc', bg: 'rgba(192, 132, 252, 0.15)', border: '1px solid rgba(192, 132, 252, 0.35)' };
+                                case 'WINDOWS_SERVICE':
+                                  return { label: 'WIN SERVICE', color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.35)' };
+                                case 'DOCKER':
+                                  return { label: 'DOCKER', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)', border: '1px solid rgba(6, 182, 212, 0.3)' };
+                                case 'SYSTEMD':
+                                  return { label: 'SYSTEMD', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)' };
+                                case 'OPENRC':
+                                  return { label: 'OPENRC', color: '#34d399', bg: 'rgba(52, 211, 153, 0.12)', border: '1px solid rgba(52, 211, 153, 0.3)' };
+                                default:
+                                  return { label: source, color: 'var(--accent-cyan)', bg: 'rgba(0, 240, 255, 0.1)', border: '1px solid rgba(0, 240, 255, 0.25)' };
+                              }
+                            };
+                            const cfg = getSourceBadgeConfig(svc.source);
+                            return (
+                              <span
+                                style={{
+                                  fontSize: '0.65rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  fontWeight: 600,
+                                  color: cfg.color,
+                                  background: cfg.bg,
+                                  border: cfg.border,
+                                  padding: '1px 6px',
+                                  borderRadius: '3px'
+                                }}
+                              >
+                                {cfg.label}
+                              </span>
+                            );
+                          })()}
 
                           {svc.pid && (
                             <span

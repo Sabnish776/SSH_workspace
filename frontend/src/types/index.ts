@@ -132,7 +132,7 @@ export interface DiscoveredService {
   displayName: string;
   category: 'DATABASE' | 'WEB' | 'RUNTIME' | 'CONTAINER' | 'SYSTEM' | 'CUSTOM';
   status: 'RUNNING' | 'STOPPED' | 'FAILED' | 'UNKNOWN';
-  source: 'SYSTEMD' | 'OPENRC' | 'DOCKER' | 'SOCKET' | 'PROCESS';
+  source: 'SYSTEMD' | 'OPENRC' | 'DOCKER' | 'SOCKET' | 'PROCESS' | 'BREW' | 'LAUNCHD' | 'WINDOWS_SERVICE';
   pid?: number;
   ports: number[];
   bindAddresses: string[];
