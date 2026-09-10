@@ -195,42 +195,57 @@ public class ServiceManagerService {
             throw new IllegalArgumentException("Invalid service name");
         }
 
-        String remoteCmd;
-        String source = request.getSource() != null ? request.getSource().toUpperCase() : "SYSTEMD";
-
-        if ("DOCKER".equals(source)) {
-            remoteCmd = String.format("docker %s %s 2>&1", actionLower, safeServiceName);
-        } else if ("BREW".equals(source)) {
-            String brewAction = "reload".equals(actionLower) ? "restart" : actionLower;
-            remoteCmd = String.format("(brew services %s %s || /opt/homebrew/bin/brew services %s %s || /usr/local/bin/brew services %s %s) 2>&1",
-                    brewAction, safeServiceName, brewAction, safeServiceName, brewAction, safeServiceName);
-        } else if ("LAUNCHD".equals(source)) {
-            if ("stop".equals(actionLower)) {
-                remoteCmd = String.format("launchctl stop %s 2>&1", safeServiceName);
-            } else if ("start".equals(actionLower)) {
-                remoteCmd = String.format("launchctl start %s 2>&1", safeServiceName);
-            } else {
-                remoteCmd = String.format("(launchctl kickstart -k %s || (launchctl stop %s && launchctl start %s)) 2>&1",
-                        safeServiceName, safeServiceName, safeServiceName);
-            }
-        } else if ("WINDOWS_SERVICE".equals(source)) {
-            if ("start".equals(actionLower)) {
-                remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Start-Service -Name '%s'\"", safeServiceName);
-            } else if ("stop".equals(actionLower)) {
-                remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Stop-Service -Name '%s' -Force\"", safeServiceName);
-            } else {
-                remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Restart-Service -Name '%s' -Force\"", safeServiceName);
-            }
-        } else if ("OPENRC".equals(source)) {
-            remoteCmd = String.format("(sudo rc-service %s %s || rc-service %s %s) 2>&1",
-                    safeServiceName, actionLower, safeServiceName, actionLower);
-        } else {
-            // Default to systemctl with service fallback
-            remoteCmd = String.format("(sudo systemctl %s %s || systemctl %s %s || sudo service %s %s) 2>&1",
-                    actionLower, safeServiceName, actionLower, safeServiceName, safeServiceName, actionLower);
-        }
-
         try (ClientSession session = sshClientService.createSession(server, password, privateKey, passphrase)) {
+            RemoteOsType osType = detectRemoteOs(session);
+            String remoteCmd;
+            String source = request.getSource() != null ? request.getSource().toUpperCase() : "SYSTEMD";
+
+            if ("DOCKER".equals(source)) {
+                remoteCmd = String.format("docker %s %s 2>&1", actionLower, safeServiceName);
+            } else if ("BREW".equals(source)) {
+                String brewAction = "reload".equals(actionLower) ? "restart" : actionLower;
+                remoteCmd = String.format("(brew services %s %s || /opt/homebrew/bin/brew services %s %s || /usr/local/bin/brew services %s %s) 2>&1",
+                        brewAction, safeServiceName, brewAction, safeServiceName, brewAction, safeServiceName);
+            } else if ("LAUNCHD".equals(source)) {
+                if ("stop".equals(actionLower)) {
+                    remoteCmd = String.format("launchctl stop %s 2>&1", safeServiceName);
+                } else if ("start".equals(actionLower)) {
+                    remoteCmd = String.format("launchctl start %s 2>&1", safeServiceName);
+                } else {
+                    remoteCmd = String.format("(launchctl kickstart -k %s || (launchctl stop %s && launchctl start %s)) 2>&1",
+                            safeServiceName, safeServiceName, safeServiceName);
+                }
+            } else if ("WINDOWS_SERVICE".equals(source)) {
+                if ("start".equals(actionLower)) {
+                    remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Start-Service -Name '%s'\"", safeServiceName);
+                } else if ("stop".equals(actionLower)) {
+                    remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Stop-Service -Name '%s' -Force\"", safeServiceName);
+                } else {
+                    remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Restart-Service -Name '%s' -Force\"", safeServiceName);
+                }
+            } else if ("PROCESS".equals(source) || "SOCKET".equals(source)) {
+                if ("stop".equals(actionLower)) {
+                    if (osType == RemoteOsType.WINDOWS) {
+                        remoteCmd = String.format("powershell -NoProfile -NonInteractive -Command \"Stop-Process -Id %s -Force\"", safeServiceName);
+                    } else {
+                        remoteCmd = String.format("(kill %s || sudo kill %s) 2>&1", safeServiceName, safeServiceName);
+                    }
+                } else {
+                    return ServiceActionResponseDto.builder()
+                            .success(false)
+                            .message("Action '" + actionLower + "' is not supported for raw processes.")
+                            .output("")
+                            .build();
+                }
+            } else if ("OPENRC".equals(source)) {
+                remoteCmd = String.format("(sudo rc-service %s %s || rc-service %s %s) 2>&1",
+                        safeServiceName, actionLower, safeServiceName, actionLower);
+            } else {
+                // Default to systemctl with service fallback
+                remoteCmd = String.format("(sudo systemctl %s %s || systemctl %s %s || sudo service %s %s) 2>&1",
+                        actionLower, safeServiceName, actionLower, safeServiceName, safeServiceName, actionLower);
+            }
+
             String output = executeRemoteCommand(session, remoteCmd, 15);
             return ServiceActionResponseDto.builder()
                     .success(true)
@@ -1007,60 +1022,82 @@ public class ServiceManagerService {
         return map;
     }
 
+    private boolean matchesWord(String text, String... words) {
+        for (String word : words) {
+            if (text.matches(".*\\b" + Pattern.quote(word) + "\\b.*")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isKnownWindowsSystemService(String name, String displayName) {
+        String n = name != null ? name.toLowerCase() : "";
+        String d = displayName != null ? displayName.toLowerCase() : "";
+        if (n.equals("gameinputredistservice") || n.equals("ngcctnrsvc")) return true;
+        if (d.contains("microsoft passport container") || d.contains("gameinput redistributable")) return true;
+        return false;
+    }
+
     private void enrichServiceMetadata(DiscoveredServiceDto dto) {
+        if (isKnownWindowsSystemService(dto.getName(), dto.getDisplayName())) {
+            dto.setCategory("SYSTEM");
+            return;
+        }
+
         String lower = (dto.getName() + " " + dto.getDisplayName()).toLowerCase();
 
-        if (lower.contains("mysql") || lower.contains("mariadb")) {
+        if (matchesWord(lower, "mysql", "mariadb")) {
             dto.setDisplayName("MySQL / MariaDB Server");
             dto.setCategory("DATABASE");
             dto.setCliCommand("mysql -u root -p");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(3306);
-        } else if (lower.contains("postgres")) {
+        } else if (matchesWord(lower, "postgres", "postgresql")) {
             dto.setDisplayName("PostgreSQL Database Server");
             dto.setCategory("DATABASE");
             dto.setCliCommand("psql -U postgres");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(5432);
-        } else if (lower.contains("redis")) {
+        } else if (matchesWord(lower, "redis", "redis-server")) {
             dto.setDisplayName("Redis In-Memory Key-Value Store");
             dto.setCategory("DATABASE");
             dto.setCliCommand("redis-cli");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(6379);
-        } else if (lower.contains("mongo")) {
+        } else if (matchesWord(lower, "mongo", "mongodb")) {
             dto.setDisplayName("MongoDB Document Database");
             dto.setCategory("DATABASE");
             dto.setCliCommand("mongosh");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(27017);
-        } else if (lower.contains("mssql") || lower.contains("sql server") || lower.contains("sqlservr")) {
+        } else if (matchesWord(lower, "mssql", "sql server", "sqlservr")) {
             dto.setDisplayName("Microsoft SQL Server");
             dto.setCategory("DATABASE");
             dto.setCliCommand("sqlcmd -S localhost -E");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(1433);
-        } else if (lower.contains("nginx")) {
+        } else if (matchesWord(lower, "nginx")) {
             dto.setDisplayName("Nginx HTTP / Reverse Proxy Server");
             dto.setCategory("WEB");
             dto.setCliCommand("nginx -t");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(80);
-        } else if (lower.contains("apache") || lower.contains("httpd")) {
+        } else if (matchesWord(lower, "apache", "httpd", "apache2")) {
             dto.setDisplayName("Apache Web Server");
             dto.setCategory("WEB");
             dto.setCliCommand("apachectl status");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(80);
-        } else if (lower.contains("caddy")) {
+        } else if (matchesWord(lower, "caddy")) {
             dto.setDisplayName("Caddy Web Server");
             dto.setCategory("WEB");
             dto.setCliCommand("caddy version");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(80);
-        } else if (lower.contains("iis") || lower.contains("w3svc")) {
+        } else if (matchesWord(lower, "iis", "w3svc")) {
             dto.setDisplayName("IIS Web Server");
             dto.setCategory("WEB");
             dto.setCliCommand("iisreset /status");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(80);
-        } else if (lower.contains("sshd") || lower.contains("openssh")) {
+        } else if (matchesWord(lower, "sshd", "openssh")) {
             dto.setDisplayName("OpenSSH Remote Daemon");
             dto.setCategory("SYSTEM");
             dto.setCliCommand("ssh -V");
             if (dto.getDefaultTunnelPort() == null) dto.setDefaultTunnelPort(22);
-        } else if (lower.contains("docker") || lower.contains("dockerd") || lower.contains("containerd")) {
+        } else if (matchesWord(lower, "docker", "dockerd", "containerd")) {
             dto.setDisplayName("Docker Engine Daemon");
             dto.setCategory("CONTAINER");
             dto.setCliCommand("docker info");
@@ -1094,28 +1131,31 @@ public class ServiceManagerService {
     }
 
     private String detectServiceCategory(String text) {
+        if (text == null) return "CUSTOM";
         String lower = text.toLowerCase();
-        if (lower.contains("mysql") || lower.contains("mariadb") || lower.contains("postgres") ||
-            lower.contains("redis") || lower.contains("mongo") || lower.contains("sqlite") ||
-            lower.contains("mssql") || lower.contains("sqlserver") || lower.contains("sqlservr") ||
-            lower.contains("3306") || lower.contains("5432") || lower.contains("6379") || lower.contains("27017") || lower.contains("1433")) {
+        
+        // We don't have the distinct name/displayName here, but we can do a quick substring check 
+        // to exclude known false positives from being labeled as anything but SYSTEM/CUSTOM.
+        if (lower.contains("gameinputredistservice") || lower.contains("gameinput redistributable") ||
+            lower.contains("ngcctnrsvc") || lower.contains("microsoft passport container")) {
+            return "SYSTEM";
+        }
+
+        if (matchesWord(lower, "mysql", "mariadb", "postgres", "postgresql", "redis", "redis-server", "mongo", "mongodb", "sqlite", "mssql", "sqlserver", "sqlservr") ||
+            matchesWord(lower, "3306", "5432", "6379", "27017", "1433")) {
             return "DATABASE";
         }
-        if (lower.contains("nginx") || lower.contains("apache") || lower.contains("httpd") ||
-            lower.contains("caddy") || lower.contains("express") || lower.contains("fastapi") ||
-            lower.contains("iis") || lower.contains("w3svc") ||
-            lower.contains("80") || lower.contains("443") || lower.contains("8080") || lower.contains("3000") || lower.contains("5000")) {
+        if (matchesWord(lower, "nginx", "apache", "httpd", "apache2", "caddy", "express", "fastapi", "iis", "w3svc") ||
+            matchesWord(lower, "80", "443", "8080", "3000", "5000")) {
             return "WEB";
         }
-        if (lower.contains("node") || lower.contains("python") || lower.contains("java") ||
-            lower.contains("ruby") || lower.contains("php") || lower.contains("golang") || lower.contains("powershell")) {
+        if (matchesWord(lower, "node", "python", "java", "ruby", "php", "golang", "powershell")) {
             return "RUNTIME";
         }
-        if (lower.contains("docker") || lower.contains("container") || lower.contains("podman") || lower.contains("k8s")) {
+        if (matchesWord(lower, "docker", "dockerd", "containerd", "podman", "k8s")) {
             return "CONTAINER";
         }
-        if (lower.contains("ssh") || lower.contains("cron") || lower.contains("systemd") ||
-            lower.contains("syslog") || lower.contains("network") || lower.contains("udev")) {
+        if (matchesWord(lower, "ssh", "cron", "systemd", "syslog", "network", "udev")) {
             return "SYSTEM";
         }
         return "CUSTOM";

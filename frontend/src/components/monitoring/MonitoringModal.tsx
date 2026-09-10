@@ -49,6 +49,8 @@ export const MonitoringModal: React.FC<MonitoringModalProps> = ({
   const memPercent = parsePercent(metrics?.memoryUsage);
   const diskPercent = parsePercent(metrics?.diskUsage);
 
+  const isWindows = metrics?.osName?.toLowerCase().includes('windows');
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -97,12 +99,12 @@ export const MonitoringModal: React.FC<MonitoringModalProps> = ({
             {/* CPU & Load */}
             <div className="metric-card">
               <div className="metric-card-header">
-                <span>CPU & LOAD</span>
+                <span>{isWindows ? "CPU UTILIZATION" : "CPU & LOAD"}</span>
                 <Cpu size={16} color="var(--accent-emerald)" />
               </div>
               <div className="metric-value">{metrics?.cpuUsage || '...'}</div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                1m, 5m, 15m: <strong>{metrics?.loadAverage || '-'}</strong>
+                {isWindows ? "Average load" : "1m, 5m, 15m"}: <strong>{metrics?.loadAverage || '-'}</strong>
               </div>
             </div>
 
@@ -124,7 +126,7 @@ export const MonitoringModal: React.FC<MonitoringModalProps> = ({
             {/* Disk Usage */}
             <div className="metric-card">
               <div className="metric-card-header">
-                <span>ROOT DISK</span>
+                <span>{isWindows ? "C: DISK" : "ROOT DISK"}</span>
                 <HardDrive size={16} color="var(--accent-amber)" />
               </div>
               <div className="metric-value">{metrics?.diskUsage || '...'}</div>

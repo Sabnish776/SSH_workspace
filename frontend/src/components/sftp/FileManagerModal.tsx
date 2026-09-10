@@ -66,15 +66,36 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   const handleNavigateUp = () => {
     if (currentPath === '/' || currentPath === '.') return;
-    const segments = currentPath.split('/').filter(Boolean);
+
+    // Windows drive root check (e.g. C:/ or C:\)
+    if (/^[a-zA-Z]:[/\\]?$/.test(currentPath)) {
+      loadDirectory('/');
+      return;
+    }
+
+    const normalized = currentPath.replace(/\\/g, '/');
+    const segments = normalized.split('/').filter(Boolean);
     segments.pop();
-    const parentPath = segments.length === 0 ? '/' : '/' + segments.join('/');
-    loadDirectory(parentPath);
+    
+    if (segments.length === 0) {
+      loadDirectory('/');
+      return;
+    }
+
+    if (/^[a-zA-Z]:$/.test(segments[0])) {
+      loadDirectory(segments.join('/') + (segments.length === 1 ? '/' : ''));
+    } else {
+      loadDirectory('/' + segments.join('/'));
+    }
   };
 
   const handleFolderClick = (item: SftpFileItem) => {
     if (item.directory) {
-      loadDirectory(item.path);
+      if (/^[a-zA-Z]:$/.test(item.name) && currentPath === '/') {
+        loadDirectory(item.name + '/');
+      } else {
+        loadDirectory(item.path);
+      }
     }
   };
 

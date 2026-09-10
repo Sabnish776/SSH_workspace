@@ -157,6 +157,16 @@ public class SftpService {
     private String validateAndNormalizePath(String path) {
         if (path == null || path.isBlank()) return "";
         if (path.contains("\0")) throw new IllegalArgumentException("Invalid path: contains null character");
+        
+        // Handle Windows drive paths (e.g. C: or C:\...) directly to avoid Paths.get() throwing on Linux
+        if (path.matches("^[a-zA-Z]:.*")) {
+            String normalized = path.replace('\\', '/');
+            if (normalized.matches("^[a-zA-Z]:$")) {
+                normalized += "/";
+            }
+            return normalized;
+        }
+
         Path p = Paths.get(path).normalize();
         return p.toString().replace('\\', '/');
     }

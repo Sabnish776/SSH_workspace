@@ -49,23 +49,29 @@ public class MonitoringService {
         }
 
         try (ClientSession session = sshClientService.createSession(server, password, privateKey, passphrase)) {
-            // Controlled read-only command script
-            String command = "cat /proc/loadavg; echo '==='; " +
-                    "head -n 4 /proc/meminfo; echo '==='; " +
-                    "df -h / | tail -n 1; echo '==='; " +
-                    "uptime; echo '==='; " +
-                    "uname -srm";
-
-            try (ChannelExec channel = session.createExecChannel(command)) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                ByteArrayOutputStream err = new ByteArrayOutputStream();
-                channel.setOut(out);
-                channel.setErr(err);
-
-                channel.open().verify(channelOpenTimeoutMs, TimeUnit.MILLISECONDS);
-                channel.waitFor(java.util.EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), execTimeoutMs);
-
-                String output = out.toString(StandardCharsets.UTF_8);
+            ServiceManagerService.RemoteOsType osType = detectOs(session);
+            
+            if (osType == ServiceManagerService.RemoteOsType.WINDOWS) {
+                String cmd = "powershell -NoProfile -NonInteractive -Command \"" +
+                    "$cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average; " +
+                    "Write-Output \\\"$cpu%\\\"; Write-Output '==='; " +
+                    "$mem = Get-CimInstance Win32_OperatingSystem; " +
+                    "Write-Output \\\"$($mem.TotalVisibleMemorySize);;$($mem.FreePhysicalMemory)\\\"; Write-Output '==='; " +
+                    "$disk = Get-CimInstance Win32_LogicalDisk -Filter \\\"DeviceID='C:'\\\"; " +
+                    "Write-Output \\\"$($disk.Size);;$($disk.FreeSpace)\\\"; Write-Output '==='; " +
+                    "$os = Get-CimInstance Win32_OperatingSystem; " +
+                    "$uptime = (Get-Date) - $os.LastBootUpTime; " +
+                    "Write-Output \\\"$($uptime.Days)d $($uptime.Hours)h $($uptime.Minutes)m\\\"; Write-Output '==='; " +
+                    "Write-Output $os.Caption\"";
+                String output = executeCommand(session, cmd);
+                return parseWindowsMetrics(output);
+            } else {
+                String command = "cat /proc/loadavg; echo '==='; " +
+                        "head -n 4 /proc/meminfo; echo '==='; " +
+                        "df -h / | tail -n 1; echo '==='; " +
+                        "uptime; echo '==='; " +
+                        "uname -srm";
+                String output = executeCommand(session, command);
                 return parseMetrics(output);
             }
         } catch (Exception e) {
@@ -81,6 +87,80 @@ public class MonitoringService {
                     .osName("Offline / Error")
                     .build();
         }
+    }
+
+    private String executeCommand(ClientSession session, String command) throws Exception {
+        try (ChannelExec channel = session.createExecChannel(command)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            channel.setOut(out);
+            channel.setErr(new ByteArrayOutputStream());
+            channel.open().verify(channelOpenTimeoutMs, TimeUnit.MILLISECONDS);
+            channel.waitFor(java.util.EnumSet.of(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), execTimeoutMs);
+            return out.toString(StandardCharsets.UTF_8);
+        }
+    }
+
+    private ServiceManagerService.RemoteOsType detectOs(ClientSession session) {
+        String serverVersion = session.getServerVersion();
+        if (serverVersion != null && serverVersion.toLowerCase().contains("windows")) {
+            return ServiceManagerService.RemoteOsType.WINDOWS;
+        }
+        try {
+            String uname = executeCommand(session, "uname -s 2>/dev/null || echo %OS%").toLowerCase();
+            if (uname.contains("darwin")) return ServiceManagerService.RemoteOsType.MACOS;
+            if (uname.contains("windows") || uname.contains("mingw") || uname.contains("msys") || uname.contains("cygwin")) {
+                return ServiceManagerService.RemoteOsType.WINDOWS;
+            }
+        } catch (Exception ignored) {}
+        return ServiceManagerService.RemoteOsType.LINUX;
+    }
+
+    private ServerMetricsDto parseWindowsMetrics(String output) {
+        String[] parts = output.split("===");
+        
+        String cpu = parts.length > 0 && !parts[0].isBlank() ? parts[0].trim() : "0%";
+        
+        String memUsage = "N/A";
+        String memDetails = "N/A";
+        if (parts.length > 1 && !parts[1].isBlank() && parts[1].contains(";;")) {
+            String[] memParts = parts[1].trim().split(";;");
+            try {
+                long totalKb = Long.parseLong(memParts[0]);
+                long freeKb = Long.parseLong(memParts[1]);
+                long usedKb = totalKb - freeKb;
+                int pct = (int) Math.round((double) usedKb / totalKb * 100);
+                memUsage = pct + "%";
+                memDetails = String.format("%.1f GB / %.1f GB", usedKb / 1024.0 / 1024.0, totalKb / 1024.0 / 1024.0);
+            } catch (Exception ignored) {}
+        }
+        
+        String diskUsage = "N/A";
+        String diskDetails = "N/A";
+        if (parts.length > 2 && !parts[2].isBlank() && parts[2].contains(";;")) {
+            String[] diskParts = parts[2].trim().split(";;");
+            try {
+                long totalB = Long.parseLong(diskParts[0]);
+                long freeB = Long.parseLong(diskParts[1]);
+                long usedB = totalB - freeB;
+                int pct = (int) Math.round((double) usedB / totalB * 100);
+                diskUsage = pct + "%";
+                diskDetails = String.format("%.1f GB / %.1f GB", usedB / 1073741824.0, totalB / 1073741824.0);
+            } catch (Exception ignored) {}
+        }
+        
+        String uptime = parts.length > 3 && !parts[3].isBlank() ? parts[3].trim() : "N/A";
+        String osName = parts.length > 4 && !parts[4].isBlank() ? parts[4].trim() : "Windows";
+
+        return ServerMetricsDto.builder()
+                .cpuUsage(cpu)
+                .memoryUsage(memUsage)
+                .memoryDetails(memDetails)
+                .diskUsage(diskUsage)
+                .diskDetails(diskDetails)
+                .loadAverage("N/A")
+                .uptime(uptime)
+                .osName(osName)
+                .build();
     }
 
     private ServerMetricsDto parseMetrics(String output) {
